@@ -120,10 +120,10 @@ def create_train_state(model_cls,
             integration_timesteps = np.ones((2*bsz, seq_len,))
         else:
             dummy_input = (np.ones((bsz, seq_len, in_dim)), np.ones(bsz))
-            integration_timesteps = np.ones((bsz, seq_len,))
+            integration_timesteps = np.ones((bsz, seq_len - 1,))
     else:
         dummy_input = np.ones((bsz, seq_len, in_dim))
-        integration_timesteps = np.ones((bsz, seq_len, ))
+        integration_timesteps = np.ones((bsz, seq_len - 1, ))
 
     model = model_cls(training=True)
     init_rng, dropout_rng = jax.random.split(rng, num=2)
@@ -132,10 +132,10 @@ def create_train_state(model_cls,
                            dummy_input, integration_timesteps,
                            )
     if batchnorm:
-        params = variables["params"].unfreeze()
+        params = variables["params"]  #.unfreeze()
         batch_stats = variables["batch_stats"]
     else:
-        params = variables["params"].unfreeze()
+        params = variables["params"]  #.unfreeze()
         # Note: `unfreeze()` is for using Optax.
 
     if opt_config in ["standard"]:
@@ -324,7 +324,7 @@ def prep_batch(batch: tuple,
     if 'timesteps' in aux_data.keys():
         integration_timesteps = np.diff(np.asarray(aux_data['timesteps'].numpy()))
     else:
-        integration_timesteps = np.ones((len(inputs), seq_len))
+        integration_timesteps = np.ones((len(inputs), seq_len - 1))
 
     return full_inputs, targets.astype(float), integration_timesteps
 
@@ -351,6 +351,7 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
             model,
             batchnorm,
         )
+        print(loss)
         batch_losses.append(loss)
         lr_params = (decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min)
         state, step = update_learning_rate_per_step(lr_params, state)

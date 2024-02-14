@@ -8,12 +8,11 @@ from .ssm_init import init_CV, init_VinvB, init_log_steps, trunc_standard_normal
 
 
 # Discretization functions
-def discretize_bilinear(Lambda, B_tilde, Delta):
+def discretize_bilinear(Lambda, Delta):
     """ Discretize a diagonalized, continuous-time linear SSM
         using bilinear transform method.
         Args:
             Lambda (complex64): diagonal state matrix              (P,)
-            B_tilde (complex64): input matrix                      (P, H)
             Delta (float32): discretization step sizes             (P,)
         Returns:
             discretized Lambda_bar (complex64), B_bar (complex64)  (P,), (P,H)
@@ -22,24 +21,23 @@ def discretize_bilinear(Lambda, B_tilde, Delta):
 
     BL = 1 / (Identity - (Delta / 2.0) * Lambda)
     Lambda_bar = BL * (Identity + (Delta / 2.0) * Lambda)
-    B_bar = (BL * Delta)[..., None] * B_tilde
-    return Lambda_bar, B_bar
+    gamma_bar = (BL * Delta)
+    return Lambda_bar, gamma_bar
 
 
-def discretize_zoh(Lambda, B_tilde, Delta):
+def discretize_zoh(Lambda, Delta):
     """ Discretize a diagonalized, continuous-time linear SSM
         using zero-order hold method.
         Args:
             Lambda (complex64): diagonal state matrix              (P,)
-            B_tilde (complex64): input matrix                      (P, H)
             Delta (float32): discretization step sizes             (P,)
         Returns:
             discretized Lambda_bar (complex64), B_bar (complex64)  (P,), (P,H)
     """
     Identity = np.ones(Lambda.shape[0])
     Lambda_bar = np.exp(Lambda * Delta)
-    B_bar = (1/Lambda * (Lambda_bar-Identity))[..., None] * B_tilde
-    return Lambda_bar, B_bar
+    gamma_bar = (1/Lambda * (Lambda_bar-Identity))
+    return Lambda_bar, gamma_bar
 
 
 # Parallel scan operations
@@ -78,10 +76,10 @@ def apply_ssm(Lambda_elements, Bu_elements, C_tilde, conj_sym):
 
 
 class S5SSM(nn.Module):
-    Lambda_re_init: np.DeviceArray
-    Lambda_im_init: np.DeviceArray
-    V: np.DeviceArray
-    Vinv: np.DeviceArray
+    Lambda_re_init: np.array
+    Lambda_im_init: np.array
+    V: np.array
+    Vinv: np.array
 
     H: int
     P: int
@@ -185,7 +183,6 @@ class S5SSM(nn.Module):
         self.log_step = self.param("log_step",
                                    init_log_steps,
                                    (self.P, self.dt_min, self.dt_max))
-        step = self.step_rescale * np.exp(self.log_step[:, 0])
 
         # Discretize
         if self.discretization in ["zoh"]:
@@ -205,21 +202,17 @@ class S5SSM(nn.Module):
             output sequence (float32): (L, H)
         """
 
+        # discretize on the fly
         @jax.vmap
         def _do_vmapped_discretize(_timestep):
-            print('\nWarning: Discretizing on-the-fly...\n')
-            B_tilde = self.B[..., 0] + 1j * self.B[..., 1]
             step = self.step_rescale * np.exp(self.log_step[:, 0])
-            Lambda_bar, B_bar = self.discretize_fn(self.Lambda, B_tilde, step * _timestep)
-            return Lambda_bar, B_bar
-
-        if integration_timesteps is None:
-            integration_timesteps = np.ones((len(input_sequence) - 1))
+            Lambda_bar, gamma_bar = self.discretize_fn(self.Lambda, step * _timestep)
+            return Lambda_bar, gamma_bar
 
         timesteps = np.expand_dims(np.concatenate((np.asarray((1,)), integration_timesteps)), -1)
-        Lambda_bar_elements, B_bar_elements = _do_vmapped_discretize(timesteps)
-        Bu_bar_elements = jax.vmap(lambda u, b: b @ u)(input_sequence, B_bar_elements)
-
+        Lambda_bar_elements, gamma_bar_elements,  = _do_vmapped_discretize(timesteps)
+        B = self.B[..., 0] + 1j * self.B[..., 1]
+        Bu_bar_elements = jax.vmap(lambda u, b, g: g * (b @ u), in_axes=(0, None, 0))(input_sequence, B, gamma_bar_elements)
         ys = apply_ssm(
             Lambda_bar_elements,
             Bu_bar_elements,
