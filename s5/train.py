@@ -104,8 +104,7 @@ def train(args):
                              dt_min=args.dt_min,
                              dt_max=args.dt_max,
                              conj_sym=args.conj_sym,
-                             clip_eigs=args.clip_eigs,
-                             bidirectional=args.bidirectional)
+                             clip_eigs=args.clip_eigs)
 
     if retrieval:
         # Use retrieval head for AAN task

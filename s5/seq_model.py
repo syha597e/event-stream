@@ -2,6 +2,7 @@ import jax
 import jax.numpy as np
 from flax import linen as nn
 from .layers import SequenceLayer
+from typing import Callable
 
 
 class StackedEncoderModel(nn.Module):
@@ -63,7 +64,7 @@ class StackedEncoderModel(nn.Module):
         """
         x = self.encoder(x)
         for layer in self.layers:
-            x = layer(x)
+            x = layer(x, integration_timesteps)
         return x
 
 

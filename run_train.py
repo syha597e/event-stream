@@ -46,8 +46,6 @@ if __name__ == "__main__":
 						help="whether to enforce conjugate symmetry")
 	parser.add_argument("--clip_eigs", type=str2bool, default=False,
 						help="whether to enforce the left-half plane condition")
-	parser.add_argument("--bidirectional", type=str2bool, default=False,
-						help="whether to use bidirectional model")
 	parser.add_argument("--dt_min", type=float, default=0.001,
 						help="min value to sample initial timescale params from")
 	parser.add_argument("--dt_max", type=float, default=0.1,
