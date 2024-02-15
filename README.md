@@ -1,3 +1,10 @@
+# This repository is a fork of the S5 repo
+Please make sure to cite S5 (see below).
+
+```bash
+python run_train.py --C_init=lecun_normal --batchnorm=True --blocks=4 --bsz=64 --clip_eigs=True --d_model=64 --dataset=shd-classification --epochs=250 --jax_seed=16416 --lr_factor=4.5 --n_layers=6 --opt_config=BfastandCdecay --p_dropout=0.1 --ssm_lr_base=0.001 --ssm_size_base=64 --warmup_end=1 --weight_decay=0.07 --USE_WANDB=false --dir_name=$DATA_DIR
+```
+
 # S5: Simplified State Space Layers for Sequence Modeling
 
 This repository provides the implementation for the
