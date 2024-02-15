@@ -88,12 +88,11 @@ def create_events_shd_classification_dataset(cache_dir: Union[str, Path] = DEFAU
 		assert len(z) == 0
 
 		# set tonic specific items
-		max_length = max([len(e) for e in x])
-
 		timesteps = [torch.tensor(e['t']) for e in x]
 		tokens = [torch.tensor(e['x']).int() for e in x]
 
 		# pad time steps with final time-step -> this is a bit of a hack to make the integration time steps 0
+		max_length = max([len(e) for e in x])
 		timesteps = torch.stack([pad(e, (0, max_length - len(e)), 'constant', e[-1]) for e in timesteps])
 
 		# timesteps are in micro seconds... transform to miliseconds

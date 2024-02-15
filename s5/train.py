@@ -45,7 +45,7 @@ def train(args):
     create_dataset_fn = Datasets[args.dataset]
 
     # Dataset dependent logic
-    if args.dataset in ["imdb-classification", "listops-classification", "aan-classification"]:
+    if args.dataset in ["imdb-classification", "listops-classification", "aan-classification", "shd-classification"]:
         padded = True
         if args.dataset in ["aan-classification"]:
             # Use retreival model for document matching
