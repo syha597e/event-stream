@@ -37,7 +37,8 @@ class StackedEncoderModel(nn.Module):
         """
         Initializes a linear encoder and the stack of S5 layers.
         """
-        self.encoder = nn.Dense(self.d_model)
+        # don't use bias to void zero tokens to produce an input
+        self.encoder = nn.Dense(self.d_model, use_bias=False)
         self.layers = [
             SequenceLayer(
                 ssm=self.ssm,

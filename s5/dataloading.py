@@ -3,7 +3,7 @@ from pathlib import Path
 import os
 from typing import Callable, Optional, TypeVar, Dict, Tuple, List, Union
 import tonic
-from torch.nn.utils.rnn import pad_sequence
+from torch.nn.functional import pad
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
@@ -88,21 +88,22 @@ def create_events_shd_classification_dataset(cache_dir: Union[str, Path] = DEFAU
 		assert len(z) == 0
 
 		# set tonic specific items
+		max_length = max([len(e) for e in x])
+
 		timesteps = [torch.tensor(e['t']) for e in x]
 		tokens = [torch.tensor(e['x']).int() for e in x]
 
-		timesteps = pad_sequence(
-			timesteps,
-			padding_value=0,
-			batch_first=True,
-		)
-		x = pad_sequence(
-			tokens,
-			padding_value=-1,
-			batch_first=True,
-		)
+		# pad time steps with final time-step -> this is a bit of a hack to make the integration time steps 0
+		timesteps = torch.stack([pad(e, (0, max_length - len(e)), 'constant', e[-1]) for e in timesteps])
+
+		# timesteps are in micro seconds... transform to miliseconds
+		timesteps = timesteps / 1000
+
+		# pad tokens with -1, which results in a zero vector with jax.nn.one_hot
+		tokens = torch.stack([pad(e, (0, max_length - len(e)), 'constant', -1) for e in tokens])
+
 		y = torch.tensor(y)
-		return x, y, {'timesteps': timesteps}
+		return tokens, y, {'timesteps': timesteps}
 
 	def data_loader(data, shuffle):
 		return torch.utils.data.DataLoader(
@@ -111,7 +112,8 @@ def create_events_shd_classification_dataset(cache_dir: Union[str, Path] = DEFAU
 			drop_last=True,
 			collate_fn=collate_fn,
 			shuffle=shuffle,
-			generator=rng
+			generator=rng,
+			num_workers=0
 		)
 
 	train_loader = data_loader(train_data, shuffle=True)
@@ -121,7 +123,7 @@ def create_events_shd_classification_dataset(cache_dir: Union[str, Path] = DEFAU
 	aux_loaders = {}
 	N_CLASSES = 10
 	SEQ_LENGTH = 16384  # if sequence length is longer than the inputs seq len, will pad in function `prep_batch`
-	IN_DIM = 1
+	IN_DIM = 700
 	TRAIN_SIZE = len(train_data)
 
 	return train_loader, val_loader, test_loader, aux_loaders, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE

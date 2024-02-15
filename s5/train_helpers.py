@@ -299,15 +299,19 @@ def prep_batch(batch: tuple,
     lengths = aux_data.get('lengths', None)
 
     # Make all batches have same sequence length
+    tokenized = (inputs.ndim < 3) and (inputs.shape[-1] != in_dim)
     num_pad = seq_len - inputs.shape[1]
     if num_pad > 0:
-        # Assuming vocab padding value is zero
-        inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(0,))
+        if tokenized:
+            inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(-1,))
+        else:
+            # Assuming vocab padding value is zero
+            inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(0,))
 
     # Inputs is either [n_batch, seq_len] or [n_batch, seq_len, in_dim].
     # If there are not three dimensions and trailing dimension is not equal to in_dim then
     # transform into one-hot.  This should be a fairly reliable fix.
-    if (inputs.ndim < 3) and (inputs.shape[-1] != in_dim):
+    if tokenized:
         inputs = one_hot(np.asarray(inputs), in_dim)
 
     # If there are lengths, bundle them up.
@@ -322,9 +326,12 @@ def prep_batch(batch: tuple,
 
     # If there is an aux channel containing the integration times, then add that.
     if 'timesteps' in aux_data.keys():
-        integration_timesteps = np.diff(np.asarray(aux_data['timesteps'].numpy()))
+        timesteps = np.asarray(aux_data['timesteps'].numpy())
+        integration_timesteps = np.diff(timesteps)
         if num_pad > 0:
-            integration_timesteps = np.pad(integration_timesteps, ((0, 0), (0, num_pad)), 'constant', constant_values=(0,))
+            integration_timesteps = jax.jit(jax.vmap(
+                lambda t, e: np.pad(t, pad_width=(0, num_pad), mode='constant', constant_values=(e,)),
+            ))(integration_timesteps, timesteps[:, -1])
     else:
         integration_timesteps = np.ones((len(inputs), seq_len - 1))
 
