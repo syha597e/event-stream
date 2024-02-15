@@ -2,6 +2,8 @@ import torch
 from pathlib import Path
 import os
 from typing import Callable, Optional, TypeVar, Dict, Tuple, List, Union
+import tonic
+from torch.nn.utils.rnn import pad_sequence
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
@@ -52,6 +54,77 @@ def make_data_loader(dset,
 	# Generate the dataloaders.
 	return torch.utils.data.DataLoader(dataset=dset, collate_fn=collate_fn, batch_size=batch_size, shuffle=shuffle,
 									   drop_last=drop_last, generator=rng)
+
+
+def create_events_shd_classification_dataset(cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
+											 bsz: int = 50,
+											 seed: int = 42) -> ReturnType:
+	"""
+	creates a view of the spiking heidelberg digits dataset
+
+	:param cache_dir:		(str):		where to store the dataset
+	:param bsz:				(int):		Batch size.
+	:param seed:			(int)		Seed for shuffling data.
+	"""
+	print("[*] Generating Spiking Heidelberg Digits Classification Dataset")
+
+	if seed is not None:
+		rng = torch.Generator()
+		rng.manual_seed(seed)
+	else:
+		rng = None
+
+	train_data = tonic.datasets.SHD(save_to=cache_dir, train=True)
+	train_data, val_data = torch.utils.data.random_split(
+		train_data,
+		lengths=[int(0.9 * len(train_data)), len(train_data) - int(0.9 * len(train_data))],
+		generator=rng
+	)
+	test_data = tonic.datasets.SHD(save_to=cache_dir, train=False)
+
+	def collate_fn(batch):
+		# x are inputs, y are targets, z are aux data
+		x, y, *z = zip(*batch)
+		assert len(z) == 0
+
+		# set tonic specific items
+		timesteps = [torch.tensor(e['t']) for e in x]
+		tokens = [torch.tensor(e['x']).int() for e in x]
+
+		timesteps = pad_sequence(
+			timesteps,
+			padding_value=0,
+			batch_first=True,
+		)
+		x = pad_sequence(
+			tokens,
+			padding_value=-1,
+			batch_first=True,
+		)
+		y = torch.tensor(y)
+		return x, y, {'timesteps': timesteps}
+
+	def data_loader(data, shuffle):
+		return torch.utils.data.DataLoader(
+			data,
+			batch_size=bsz,
+			drop_last=True,
+			collate_fn=collate_fn,
+			shuffle=shuffle,
+			generator=rng
+		)
+
+	train_loader = data_loader(train_data, shuffle=True)
+	val_loader = data_loader(val_data, shuffle=False)
+	test_loader = data_loader(test_data, shuffle=False)
+
+	aux_loaders = {}
+	N_CLASSES = 10
+	SEQ_LENGTH = 16384  # if sequence length is longer than the inputs seq len, will pad in function `prep_batch`
+	IN_DIM = 1
+	TRAIN_SIZE = len(train_data)
+
+	return train_loader, val_loader, test_loader, aux_loaders, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE
 
 
 def create_lra_imdb_classification_dataset(cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
@@ -403,4 +476,7 @@ Datasets = {
 
 	# Speech.
 	"speech35-classification": create_speechcommands35_classification_dataset,
+
+	# Events
+	"shd-classification": create_events_shd_classification_dataset
 }

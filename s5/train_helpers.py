@@ -92,7 +92,7 @@ def create_train_state(model_cls,
                        opt_config="standard",
                        ssm_lr=1e-3,
                        lr=1e-3,
-                       dt_global=False
+                       dt_global=False,
                        ):
     """
     Initializes the training state using optax
@@ -323,6 +323,8 @@ def prep_batch(batch: tuple,
     # If there is an aux channel containing the integration times, then add that.
     if 'timesteps' in aux_data.keys():
         integration_timesteps = np.diff(np.asarray(aux_data['timesteps'].numpy()))
+        if num_pad > 0:
+            integration_timesteps = np.pad(integration_timesteps, ((0, 0), (0, num_pad)), 'constant', constant_values=(0,))
     else:
         integration_timesteps = np.ones((len(inputs), seq_len - 1))
 
