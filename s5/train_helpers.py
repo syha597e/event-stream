@@ -6,6 +6,7 @@ from tqdm import tqdm
 from flax.training import train_state
 import optax
 from typing import Any, Tuple
+from time import time
 
 
 # LR schedulers

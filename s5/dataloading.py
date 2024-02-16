@@ -92,7 +92,8 @@ def create_events_shd_classification_dataset(cache_dir: Union[str, Path] = DEFAU
 		tokens = [torch.tensor(e['x']).int() for e in x]
 
 		# pad time steps with final time-step -> this is a bit of a hack to make the integration time steps 0
-		max_length = max([len(e) for e in x])
+		lengths = torch.tensor([len(e) for e in x], dtype=torch.long)
+		max_length = lengths.max().item()
 		timesteps = torch.stack([pad(e, (0, max_length - len(e)), 'constant', e[-1]) for e in timesteps])
 
 		# timesteps are in micro seconds... transform to miliseconds
@@ -102,7 +103,7 @@ def create_events_shd_classification_dataset(cache_dir: Union[str, Path] = DEFAU
 		tokens = torch.stack([pad(e, (0, max_length - len(e)), 'constant', -1) for e in tokens])
 
 		y = torch.tensor(y)
-		return tokens, y, {'timesteps': timesteps}
+		return tokens, y, {'timesteps': timesteps, 'lengths': lengths}
 
 	def data_loader(data, shuffle):
 		return torch.utils.data.DataLoader(
@@ -112,7 +113,7 @@ def create_events_shd_classification_dataset(cache_dir: Union[str, Path] = DEFAU
 			collate_fn=collate_fn,
 			shuffle=shuffle,
 			generator=rng,
-			num_workers=0
+			num_workers=4
 		)
 
 	train_loader = data_loader(train_data, shuffle=True)
