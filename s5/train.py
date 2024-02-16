@@ -45,7 +45,7 @@ def train(args):
     create_dataset_fn = Datasets[args.dataset]
 
     # Dataset dependent logic
-    if args.dataset in ["imdb-classification", "listops-classification", "aan-classification"]:
+    if args.dataset in ["imdb-classification", "listops-classification", "aan-classification", "shd-classification"]:
         padded = True
         if args.dataset in ["aan-classification"]:
             # Use retreival model for document matching
@@ -104,8 +104,7 @@ def train(args):
                              dt_min=args.dt_min,
                              dt_max=args.dt_max,
                              conj_sym=args.conj_sym,
-                             clip_eigs=args.clip_eigs,
-                             bidirectional=args.bidirectional)
+                             clip_eigs=args.clip_eigs)
 
     if retrieval:
         # Use retrieval head for AAN task

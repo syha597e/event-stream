@@ -6,6 +6,7 @@ from tqdm import tqdm
 from flax.training import train_state
 import optax
 from typing import Any, Tuple
+from time import time
 
 
 # LR schedulers
@@ -92,7 +93,7 @@ def create_train_state(model_cls,
                        opt_config="standard",
                        ssm_lr=1e-3,
                        lr=1e-3,
-                       dt_global=False
+                       dt_global=False,
                        ):
     """
     Initializes the training state using optax
@@ -120,10 +121,10 @@ def create_train_state(model_cls,
             integration_timesteps = np.ones((2*bsz, seq_len,))
         else:
             dummy_input = (np.ones((bsz, seq_len, in_dim)), np.ones(bsz))
-            integration_timesteps = np.ones((bsz, seq_len,))
+            integration_timesteps = np.ones((bsz, seq_len - 1,))
     else:
         dummy_input = np.ones((bsz, seq_len, in_dim))
-        integration_timesteps = np.ones((bsz, seq_len, ))
+        integration_timesteps = np.ones((bsz, seq_len - 1, ))
 
     model = model_cls(training=True)
     init_rng, dropout_rng = jax.random.split(rng, num=2)
@@ -132,10 +133,10 @@ def create_train_state(model_cls,
                            dummy_input, integration_timesteps,
                            )
     if batchnorm:
-        params = variables["params"].unfreeze()
+        params = variables["params"]  #.unfreeze()
         batch_stats = variables["batch_stats"]
     else:
-        params = variables["params"].unfreeze()
+        params = variables["params"]  #.unfreeze()
         # Note: `unfreeze()` is for using Optax.
 
     if opt_config in ["standard"]:
@@ -299,15 +300,19 @@ def prep_batch(batch: tuple,
     lengths = aux_data.get('lengths', None)
 
     # Make all batches have same sequence length
+    tokenized = (inputs.ndim < 3) and (inputs.shape[-1] != in_dim)
     num_pad = seq_len - inputs.shape[1]
     if num_pad > 0:
-        # Assuming vocab padding value is zero
-        inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(0,))
+        if tokenized:
+            inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(-1,))
+        else:
+            # Assuming vocab padding value is zero
+            inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(0,))
 
     # Inputs is either [n_batch, seq_len] or [n_batch, seq_len, in_dim].
     # If there are not three dimensions and trailing dimension is not equal to in_dim then
     # transform into one-hot.  This should be a fairly reliable fix.
-    if (inputs.ndim < 3) and (inputs.shape[-1] != in_dim):
+    if tokenized:
         inputs = one_hot(np.asarray(inputs), in_dim)
 
     # If there are lengths, bundle them up.
@@ -322,9 +327,14 @@ def prep_batch(batch: tuple,
 
     # If there is an aux channel containing the integration times, then add that.
     if 'timesteps' in aux_data.keys():
-        integration_timesteps = np.diff(np.asarray(aux_data['timesteps'].numpy()))
+        timesteps = np.asarray(aux_data['timesteps'].numpy())
+        integration_timesteps = np.diff(timesteps)
+        if num_pad > 0:
+            integration_timesteps = jax.jit(jax.vmap(
+                lambda t, e: np.pad(t, pad_width=(0, num_pad), mode='constant', constant_values=(e,)),
+            ))(integration_timesteps, timesteps[:, -1])
     else:
-        integration_timesteps = np.ones((len(inputs), seq_len))
+        integration_timesteps = np.ones((len(inputs), seq_len - 1))
 
     return full_inputs, targets.astype(float), integration_timesteps
 

@@ -2,6 +2,7 @@ import jax
 import jax.numpy as np
 from flax import linen as nn
 from .layers import SequenceLayer
+from typing import Callable
 
 
 class StackedEncoderModel(nn.Module):
@@ -36,7 +37,8 @@ class StackedEncoderModel(nn.Module):
         """
         Initializes a linear encoder and the stack of S5 layers.
         """
-        self.encoder = nn.Dense(self.d_model)
+        # don't use bias to void zero tokens to produce an input
+        self.encoder = nn.Dense(self.d_model, use_bias=False)
         self.layers = [
             SequenceLayer(
                 ssm=self.ssm,
@@ -63,7 +65,7 @@ class StackedEncoderModel(nn.Module):
         """
         x = self.encoder(x)
         for layer in self.layers:
-            x = layer(x)
+            x = layer(x, integration_timesteps)
         return x
 
 

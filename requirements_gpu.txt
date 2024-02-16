@@ -5,5 +5,7 @@ tensorflow-datasets==4.5.2
 pydub==0.25.1
 datasets
 tqdm
+tonic
+wandb
 --find-links https://storage.googleapis.com/jax-releases/jax_releases.html
 jax[cuda]>=version
