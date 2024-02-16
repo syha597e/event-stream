@@ -203,16 +203,17 @@ class S5SSM(nn.Module):
         """
 
         # discretize on the fly
-        @jax.vmap
-        def _do_vmapped_discretize(_timestep):
+        B = self.B[..., 0] + 1j * self.B[..., 1]
+
+        def discretize_and_project_inputs(u, _timestep):
             step = self.step_rescale * np.exp(self.log_step[:, 0])
             Lambda_bar, gamma_bar = self.discretize_fn(self.Lambda, step * _timestep)
-            return Lambda_bar, gamma_bar
+            Bu = gamma_bar * (B @ u)
+            return Lambda_bar, Bu
 
         timesteps = np.expand_dims(np.concatenate((np.asarray((1,)), integration_timesteps)), -1)
-        Lambda_bar_elements, gamma_bar_elements,  = _do_vmapped_discretize(timesteps)
-        B = self.B[..., 0] + 1j * self.B[..., 1]
-        Bu_bar_elements = jax.vmap(lambda u, b, g: g * (b @ u), in_axes=(0, None, 0))(input_sequence, B, gamma_bar_elements)
+        Lambda_bar_elements, Bu_bar_elements = jax.vmap(discretize_and_project_inputs)(input_sequence, timesteps)
+
         ys = apply_ssm(
             Lambda_bar_elements,
             Bu_bar_elements,
