@@ -100,7 +100,6 @@ def train(args):
                              V=V,
                              Vinv=Vinv,
                              C_init=args.C_init,
-                             discretization=args.discretization,
                              dt_min=args.dt_min,
                              dt_max=args.dt_max,
                              conj_sym=args.conj_sym,
@@ -127,6 +126,7 @@ def train(args):
         model_cls = partial(
             BatchClassificationModel,
             ssm=ssm_init_fn,
+            discretization=args.discretization,
             d_output=n_classes,
             d_model=args.d_model,
             n_layers=args.n_layers,

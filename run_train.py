@@ -35,7 +35,7 @@ if __name__ == "__main__":
 							 "trunc_standard_normal: sample from trunc. std. normal then multiply by V \\ " \
 							 "lecun_normal sample from lecun normal, then multiply by V\\ " \
 							 "complex_normal: sample directly from complex standard normal")
-	parser.add_argument("--discretization", type=str, default="zoh", choices=["zoh", "bilinear"])
+	parser.add_argument("--discretization", type=str, default="zoh", choices=["zoh", "bilinear", "dirac"])
 	parser.add_argument("--mode", type=str, default="pool", choices=["pool", "last"],
 						help="options: (for classification tasks) \\" \
 							 " pool: mean pooling \\" \

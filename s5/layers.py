@@ -20,6 +20,7 @@ class SequenceLayer(nn.Module):
                                     the speech commands benchmark
     """
     ssm: nn.Module
+    discretization: str
     dropout: float
     d_model: int
     activation: str = "gelu"
@@ -32,7 +33,7 @@ class SequenceLayer(nn.Module):
     def setup(self):
         """Initializes the ssm, batch/layer norm and dropout
         """
-        self.seq = self.ssm(step_rescale=self.step_rescale)
+        self.seq = self.ssm(step_rescale=self.step_rescale, discretization=self.discretization)
 
         if self.activation in ["full_glu"]:
             self.out1 = nn.Dense(self.d_model)
