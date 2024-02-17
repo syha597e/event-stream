@@ -99,8 +99,14 @@ def create_events_shd_classification_dataset(cache_dir: Union[str, Path] = DEFAU
 		# timesteps are in micro seconds... transform to miliseconds
 		timesteps = timesteps / 1000
 
+		# Hack: apply random time jitter to avoid the same timestep occouring multiple times
+		timesteps = timesteps + torch.rand_like(timesteps) * 0.1
+		ind = torch.argsort(timesteps, dim=1)
+		timesteps = torch.gather(timesteps, dim=1, index=ind)
+
 		# pad tokens with -1, which results in a zero vector with jax.nn.one_hot
 		tokens = torch.stack([pad(e, (0, max_length - len(e)), 'constant', -1) for e in tokens])
+		tokens = torch.gather(tokens, dim=1, index=ind)
 
 		y = torch.tensor(y)
 		return tokens, y, {'timesteps': timesteps, 'lengths': lengths}
@@ -121,7 +127,7 @@ def create_events_shd_classification_dataset(cache_dir: Union[str, Path] = DEFAU
 	test_loader = data_loader(test_data, shuffle=False)
 
 	aux_loaders = {}
-	N_CLASSES = 10
+	N_CLASSES = 20
 	SEQ_LENGTH = 16384  # if sequence length is longer than the inputs seq len, will pad in function `prep_batch`
 	IN_DIM = 700
 	TRAIN_SIZE = len(train_data)
