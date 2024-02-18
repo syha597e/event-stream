@@ -25,6 +25,8 @@ class StackedEncoderModel(nn.Module):
     ssm: nn.Module
     d_model: int
     n_layers: int
+    tokenized: bool = False
+    num_embeddings: int = 0
     activation: str = "gelu"
     dropout: float = 0.0
     training: bool = True
@@ -38,7 +40,13 @@ class StackedEncoderModel(nn.Module):
         Initializes a linear encoder and the stack of S5 layers.
         """
         # don't use bias to void zero tokens to produce an input
-        self.encoder = nn.Dense(self.d_model, use_bias=False)
+        if self.tokenized:
+            assert self.num_embeddings > 0
+            print("Using tokenized input")
+            self.encoder = nn.Embed(num_embeddings=self.num_embeddings, features=self.d_model)
+        else:
+            self.encoder = nn.Dense(self.d_model)
+
         self.layers = [
             SequenceLayer(
                 ssm=self.ssm,
@@ -117,6 +125,8 @@ class ClassificationModel(nn.Module):
     d_model: int
     n_layers: int
     padded: bool
+    tokenized: bool = False
+    num_embeddings: int = 0
     activation: str = "gelu"
     dropout: float = 0.2
     training: bool = True
@@ -134,6 +144,8 @@ class ClassificationModel(nn.Module):
                             ssm=self.ssm,
                             d_model=self.d_model,
                             n_layers=self.n_layers,
+                            tokenized=self.tokenized,
+                            num_embeddings=self.num_embeddings,
                             activation=self.activation,
                             dropout=self.dropout,
                             training=self.training,

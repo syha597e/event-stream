@@ -45,8 +45,16 @@ def train(args):
     create_dataset_fn = Datasets[args.dataset]
 
     # Dataset dependent logic
-    if args.dataset in ["imdb-classification", "listops-classification", "aan-classification", "shd-classification"]:
+    if args.dataset in [
+        "imdb-classification",
+        "listops-classification",
+        "aan-classification",
+        "shd-classification",
+        "ssc-classification",
+        "dvs-gesture-classification",
+    ]:
         padded = True
+        tokenized = True
         if args.dataset in ["aan-classification"]:
             # Use retreival model for document matching
             retrieval = True
@@ -56,7 +64,15 @@ def train(args):
 
     else:
         padded = False
+        tokenized = False
         retrieval = False
+
+    if args.dataset in ["shd-classification", "ssc-classification"]:
+        num_embeddings = 700
+    elif args.dataset in ["dvs-gesture-classification"]:
+        num_embeddings = 128 * 128 * 2
+    else:
+        num_embeddings = 0
 
     # For speech dataset
     if args.dataset in ["speech35-classification"]:
@@ -130,6 +146,8 @@ def train(args):
             d_output=n_classes,
             d_model=args.d_model,
             n_layers=args.n_layers,
+            tokenized=tokenized,
+            num_embeddings=num_embeddings,
             padded=padded,
             activation=args.activation_fn,
             dropout=args.p_dropout,
@@ -144,6 +162,7 @@ def train(args):
                                init_rng,
                                padded,
                                retrieval,
+                               tokenized=tokenized,
                                in_dim=in_dim,
                                bsz=args.bsz,
                                seq_len=seq_len,

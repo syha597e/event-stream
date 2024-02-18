@@ -85,6 +85,7 @@ def create_train_state(model_cls,
                        rng,
                        padded,
                        retrieval,
+                       tokenized=False,
                        in_dim=1,
                        bsz=128,
                        seq_len=784,
@@ -115,15 +116,22 @@ def create_train_state(model_cls,
     """
 
     if padded:
-        if retrieval:
             # For retrieval tasks we have two different sets of "documents"
-            dummy_input = (np.ones((2*bsz, seq_len, in_dim)), np.ones(2*bsz))
-            integration_timesteps = np.ones((2*bsz, seq_len,))
-        else:
-            dummy_input = (np.ones((bsz, seq_len, in_dim)), np.ones(bsz))
-            integration_timesteps = np.ones((bsz, seq_len - 1,))
+            if tokenized:
+                inputs = np.ones((2 * bsz if retrieval else bsz, seq_len), dtype=np.int32)
+                lengths = np.ones(2 * bsz if retrieval else bsz, dtype=np.int32)
+            else:
+                inputs = np.ones((2 * bsz if retrieval else bsz, seq_len, in_dim))
+                lengths = np.ones(2 * bsz if retrieval else bsz)
+
+            dummy_input = (inputs, lengths)
+            integration_timesteps = np.ones((2*bsz if retrieval else bsz, seq_len - 1,))
     else:
-        dummy_input = np.ones((bsz, seq_len, in_dim))
+        if tokenized:
+            dummy_input = np.ones((bsz, seq_len), dtype=np.int32)
+        else:
+            dummy_input = np.ones((bsz, seq_len, in_dim), dtype=np.int32)
+
         integration_timesteps = np.ones((bsz, seq_len - 1, ))
 
     model = model_cls(training=True)
@@ -312,13 +320,16 @@ def prep_batch(batch: tuple,
     # Inputs is either [n_batch, seq_len] or [n_batch, seq_len, in_dim].
     # If there are not three dimensions and trailing dimension is not equal to in_dim then
     # transform into one-hot.  This should be a fairly reliable fix.
-    if tokenized:
-        inputs = one_hot(np.asarray(inputs), in_dim)
+    #if tokenized:
+    #    inputs = one_hot(np.asarray(inputs), in_dim)
 
     # If there are lengths, bundle them up.
     if lengths is not None:
         lengths = np.asarray(lengths.numpy())
-        full_inputs = (inputs.astype(float), lengths.astype(float))
+        if tokenized:
+            full_inputs = (inputs.astype(np.int32), lengths.astype(np.int32))
+        else:
+            full_inputs = (inputs.astype(float), lengths.astype(float))
     else:
         full_inputs = inputs.astype(float)
 

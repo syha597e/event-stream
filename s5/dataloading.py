@@ -3,7 +3,9 @@ from pathlib import Path
 import os
 from typing import Callable, Optional, TypeVar, Dict, Tuple, List, Union
 import tonic
+from functools import partial
 from torch.nn.functional import pad
+import numpy as np
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
@@ -56,9 +58,65 @@ def make_data_loader(dset,
 									   drop_last=drop_last, generator=rng)
 
 
-def create_events_shd_classification_dataset(cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
-											 bsz: int = 50,
-											 seed: int = 42) -> ReturnType:
+def event_stream_collate_fn(batch, resolution):
+	# x are inputs, y are targets, z are aux data
+	x, y, *z = zip(*batch)
+	assert len(z) == 0
+
+	# set tonic specific items
+	timesteps = [torch.tensor(e['t'].copy()) for e in x]
+
+	# process tokens for single input dim (e.g. audio)
+	if len(resolution) == 1:
+		tokens = [torch.tensor(e['x']).int() for e in x]
+	elif len(resolution) == 2:
+		tokens = [torch.tensor(e['x'] * e['y'] + np.prod(resolution) * e['p'].astype(np.int32)).int() for e in x]
+	else:
+		raise ValueError('resolution must contain 1 or 2 elements')
+
+	# pad time steps with final time-step -> this is a bit of a hack to make the integration time steps 0
+	lengths = torch.tensor([len(e) for e in x], dtype=torch.long)
+	max_length = lengths.max().item()
+	timesteps = torch.stack([pad(e, (0, max_length - len(e)), 'constant', e[-1]) for e in timesteps])
+
+	# timesteps are in micro seconds... transform to milliseconds
+	timesteps = timesteps / 1000
+
+	# Hack: apply random time jitter to avoid the same timestep occouring multiple times
+	timesteps = timesteps + torch.rand_like(timesteps) * 0.1
+	ind = torch.argsort(timesteps, dim=1)
+	timesteps = torch.gather(timesteps, dim=1, index=ind)
+
+	# pad tokens with -1, which results in a zero vector with jax.nn.one_hot
+	tokens = torch.stack([pad(e, (0, max_length - len(e)), 'constant', -1) for e in tokens])
+	tokens = torch.gather(tokens, dim=1, index=ind)
+
+	y = torch.tensor(y).int()
+	return tokens, y, {'timesteps': timesteps, 'lengths': lengths}
+
+
+def event_stream_dataloader(train_data, val_data, test_data, bsz, collate_fn, rng, shuffle_training=True):
+	def dataloader(dset, shuffle):
+		return torch.utils.data.DataLoader(
+			dset,
+			batch_size=bsz,
+			drop_last=True,
+			collate_fn=collate_fn,
+			shuffle=shuffle,
+			generator=rng,
+			num_workers=6
+		)
+	train_loader = dataloader(train_data, shuffle=shuffle_training)
+	val_loader = dataloader(val_data, shuffle=False)
+	test_loader = dataloader(test_data, shuffle=False)
+	return train_loader, val_loader, test_loader
+
+
+def create_events_shd_classification_dataset(
+		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
+		bsz: int = 50,
+		seed: int = 42
+) -> ReturnType:
 	"""
 	creates a view of the spiking heidelberg digits dataset
 
@@ -75,61 +133,107 @@ def create_events_shd_classification_dataset(cache_dir: Union[str, Path] = DEFAU
 		rng = None
 
 	train_data = tonic.datasets.SHD(save_to=cache_dir, train=True)
+	val_length = int(0.1 * len(train_data))
 	train_data, val_data = torch.utils.data.random_split(
 		train_data,
-		lengths=[int(0.9 * len(train_data)), len(train_data) - int(0.9 * len(train_data))],
+		lengths=[len(train_data) - val_length, val_length],
 		generator=rng
 	)
 	test_data = tonic.datasets.SHD(save_to=cache_dir, train=False)
 
-	def collate_fn(batch):
-		# x are inputs, y are targets, z are aux data
-		x, y, *z = zip(*batch)
-		assert len(z) == 0
-
-		# set tonic specific items
-		timesteps = [torch.tensor(e['t']) for e in x]
-		tokens = [torch.tensor(e['x']).int() for e in x]
-
-		# pad time steps with final time-step -> this is a bit of a hack to make the integration time steps 0
-		lengths = torch.tensor([len(e) for e in x], dtype=torch.long)
-		max_length = lengths.max().item()
-		timesteps = torch.stack([pad(e, (0, max_length - len(e)), 'constant', e[-1]) for e in timesteps])
-
-		# timesteps are in micro seconds... transform to miliseconds
-		timesteps = timesteps / 1000
-
-		# Hack: apply random time jitter to avoid the same timestep occouring multiple times
-		timesteps = timesteps + torch.rand_like(timesteps) * 0.1
-		ind = torch.argsort(timesteps, dim=1)
-		timesteps = torch.gather(timesteps, dim=1, index=ind)
-
-		# pad tokens with -1, which results in a zero vector with jax.nn.one_hot
-		tokens = torch.stack([pad(e, (0, max_length - len(e)), 'constant', -1) for e in tokens])
-		tokens = torch.gather(tokens, dim=1, index=ind)
-
-		y = torch.tensor(y)
-		return tokens, y, {'timesteps': timesteps, 'lengths': lengths}
-
-	def data_loader(data, shuffle):
-		return torch.utils.data.DataLoader(
-			data,
-			batch_size=bsz,
-			drop_last=True,
-			collate_fn=collate_fn,
-			shuffle=shuffle,
-			generator=rng,
-			num_workers=4
-		)
-
-	train_loader = data_loader(train_data, shuffle=True)
-	val_loader = data_loader(val_data, shuffle=False)
-	test_loader = data_loader(test_data, shuffle=False)
+	train_loader, val_loader, test_loader = event_stream_dataloader(
+		train_data, val_data, test_data,
+		collate_fn=partial(event_stream_collate_fn, resolution=(700,)),
+		bsz=bsz, rng=rng, shuffle_training=True
+	)
 
 	aux_loaders = {}
 	N_CLASSES = 20
 	SEQ_LENGTH = 16384  # if sequence length is longer than the inputs seq len, will pad in function `prep_batch`
 	IN_DIM = 700
+	TRAIN_SIZE = len(train_data)
+
+	return train_loader, val_loader, test_loader, aux_loaders, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE
+
+
+def create_events_ssc_classification_dataset(
+		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
+		bsz: int = 50,
+		seed: int = 42
+) -> ReturnType:
+	"""
+	creates a view of the spiking speech commands dataset
+
+	:param cache_dir:		(str):		where to store the dataset
+	:param bsz:				(int):		Batch size.
+	:param seed:			(int)		Seed for shuffling data.
+	"""
+	print("[*] Generating Spiking Speech Commands Classification Dataset")
+
+	if seed is not None:
+		rng = torch.Generator()
+		rng.manual_seed(seed)
+	else:
+		rng = None
+
+	train_data = tonic.datasets.SSC(save_to=cache_dir, split='train')
+	val_data = tonic.datasets.SSC(save_to=cache_dir, split='valid')
+	test_data = tonic.datasets.SSC(save_to=cache_dir, split='test')
+
+	train_loader, val_loader, test_loader = event_stream_dataloader(
+		train_data, val_data, test_data,
+		collate_fn=partial(event_stream_collate_fn, resolution=(700,)),
+		bsz=bsz, rng=rng, shuffle_training=True
+	)
+
+	aux_loaders = {}
+	N_CLASSES = 35
+	SEQ_LENGTH = 20480  # choose a multiple of 1024 that is just larger than the longest sequence
+	IN_DIM = 700
+	TRAIN_SIZE = len(train_data)
+
+	return train_loader, val_loader, test_loader, aux_loaders, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE
+
+
+def create_events_dvs_gesture_classification_dataset(
+		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
+		bsz: int = 50,
+		seed: int = 42
+) -> ReturnType:
+	"""
+	creates a view of the DVS Gesture dataset
+
+	:param cache_dir:		(str):		where to store the dataset
+	:param bsz:				(int):		Batch size.
+	:param seed:			(int)		Seed for shuffling data.
+	"""
+	print("[*] Generating DVS Gesture Classification Dataset")
+
+	if seed is not None:
+		rng = torch.Generator()
+		rng.manual_seed(seed)
+	else:
+		rng = None
+
+	train_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=True)
+	val_length = int(0.1 * len(train_data))
+	train_data, val_data = torch.utils.data.random_split(
+		train_data,
+		lengths=[len(train_data) - val_length, val_length],
+		generator=rng
+	)
+	test_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=False)
+
+	train_loader, val_loader, test_loader = event_stream_dataloader(
+		train_data, val_data, test_data,
+		collate_fn=partial(event_stream_collate_fn, resolution=(128, 128)),
+		bsz=bsz, rng=rng, shuffle_training=True
+	)
+
+	aux_loaders = {}
+	N_CLASSES = 11
+	SEQ_LENGTH = 1024 * 1024  # if sequence length is longer than the inputs seq len, will pad in function `prep_batch`
+	IN_DIM = 128
 	TRAIN_SIZE = len(train_data)
 
 	return train_loader, val_loader, test_loader, aux_loaders, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE
@@ -486,5 +590,7 @@ Datasets = {
 	"speech35-classification": create_speechcommands35_classification_dataset,
 
 	# Events
-	"shd-classification": create_events_shd_classification_dataset
+	"shd-classification": create_events_shd_classification_dataset,
+	"ssc-classification": create_events_ssc_classification_dataset,
+	"dvs-gesture-classification": create_events_dvs_gesture_classification_dataset,
 }
