@@ -42,7 +42,7 @@ if __name__ == "__main__":
 						help="options: (for classification tasks) \\" \
 							 " pool: mean pooling \\" \
 							 "last: take last element")
-	parser.add_argument("--activation_fn", default="half_glu1", type=str,
+	parser.add_argument("--activation_fn", default="half_glu2", type=str,
 						choices=["full_glu", "half_glu1", "half_glu2", "gelu"])
 	parser.add_argument("--conj_sym", type=str2bool, default=True,
 						help="whether to enforce conjugate symmetry")
