@@ -199,6 +199,10 @@ def train(args):
             decay_function = constant_lr
             end_step = None
 
+        # set step to 0 to properly handle learning rate schedule
+        if epoch == args.warmup_end:
+            step = 0
+
         # TODO: Switch to letting Optax handle this.
         #  Passing this around to manually handle per step learning rate decay.
         lr_params = (decay_function, ssm_lr, lr, step, end_step, args.opt_config, args.lr_min)
