@@ -112,14 +112,8 @@ def event_stream_collate_fn(batch, resolution, max_time=None):
 	# timesteps are in micro seconds... transform to milliseconds
 	timesteps = timesteps / 1000
 
-	# Hack: apply random time jitter to avoid the same timestep occouring multiple times
-	timesteps = timesteps + torch.rand_like(timesteps) * 0.1
-	ind = torch.argsort(timesteps, dim=1)
-	timesteps = torch.gather(timesteps, dim=1, index=ind)
-
 	# pad tokens with -1, which results in a zero vector with jax.nn.one_hot
 	tokens = torch.stack([pad(e, (0, max_length - len(e)), 'constant', -1) for e in tokens])
-	tokens = torch.gather(tokens, dim=1, index=ind)
 
 	y = torch.tensor(y).int()
 	return tokens, y, {'timesteps': timesteps, 'lengths': lengths}
@@ -163,7 +157,15 @@ def create_events_shd_classification_dataset(
 	else:
 		rng = None
 
-	train_data = tonic.datasets.SHD(save_to=cache_dir, train=True)
+	transforms = tonic.transforms.Compose(
+		[
+			tonic.transforms.TimeJitter(std=100, clip_negative=False, sort_timestamps=True),
+			tonic.transforms.DropEvent(p=0.1),
+			tonic.transforms.TimeSkew(coefficient=(0.9, 1.15), offset=0)
+		]
+	)
+
+	train_data = tonic.datasets.SHD(save_to=cache_dir, train=True, transform=transforms)
 	val_length = int(0.1 * len(train_data))
 	train_data, val_data = torch.utils.data.random_split(
 		train_data,
@@ -204,7 +206,15 @@ def create_events_ssc_classification_dataset(
 	else:
 		rng = None
 
-	train_data = tonic.datasets.SSC(save_to=cache_dir, split='train')
+	transforms = tonic.transforms.Compose(
+		[
+			tonic.transforms.TimeJitter(std=100, clip_negative=False, sort_timestamps=True),
+			tonic.transforms.DropEvent(p=0.1),
+			tonic.transforms.TimeSkew(coefficient=(0.9, 1.15), offset=0)
+		]
+	)
+
+	train_data = tonic.datasets.SSC(save_to=cache_dir, split='train', transform=transforms)
 	val_data = tonic.datasets.SSC(save_to=cache_dir, split='valid')
 	test_data = tonic.datasets.SSC(save_to=cache_dir, split='test')
 
@@ -245,7 +255,15 @@ def create_events_dvs_gesture_classification_dataset(
 	else:
 		rng = None
 
-	train_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=True)
+	transforms = tonic.transforms.Compose(
+		[
+			tonic.transforms.TimeJitter(std=100, clip_negative=False, sort_timestamps=True),
+			tonic.transforms.DropEvent(p=0.1),
+			tonic.transforms.TimeSkew(coefficient=(0.9, 1.15), offset=0)
+		]
+	)
+
+	train_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=transforms)
 	val_length = int(0.1 * len(train_data))
 	train_data, val_data = torch.utils.data.random_split(
 		train_data,
