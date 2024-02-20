@@ -11,16 +11,40 @@ DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
 DataLoader = TypeVar('DataLoader')
 InputType = [str, Optional[int], Optional[int]]
-ReturnType = Tuple[DataLoader, DataLoader, DataLoader, Dict, int, int, int, int]
+
+
+class Data:
+	def __init__(
+			self,
+			train_loader: DataLoader,
+			val_loader: DataLoader,
+			test_loader: DataLoader,
+			aux_loaders: Dict,
+			n_classes: int,
+			train_pad_length: int,
+			test_pad_length: int,
+			in_dim: int,
+			train_size: int
+):
+		self.train_loader = train_loader
+		self.val_loader = val_loader
+		self.test_loader = test_loader
+		self.aux_loaders = aux_loaders
+		self.n_classes = n_classes
+		self.train_pad_length = train_pad_length
+		self.test_pad_length = test_pad_length
+		self.in_dim = in_dim
+		self.train_size = train_size
+
 
 # Custom loading functions must therefore have the template.
-dataset_fn = Callable[[str, Optional[int], Optional[int]], ReturnType]
+dataset_fn = Callable[[str, Optional[int], Optional[int]], Data]
 
 
 # Example interface for making a loader.
 def custom_loader(cache_dir: str,
 				  bsz: int = 50,
-				  seed: int = 42) -> ReturnType:
+				  seed: int = 42) -> Data:
 	...
 
 
@@ -101,18 +125,18 @@ def event_stream_collate_fn(batch, resolution, max_time=None):
 	return tokens, y, {'timesteps': timesteps, 'lengths': lengths}
 
 
-def event_stream_dataloader(train_data, val_data, test_data, bsz, collate_fn, rng, shuffle_training=True):
-	def dataloader(dset, shuffle):
+def event_stream_dataloader(train_data, val_data, test_data, bsz, collate_fn, rng, shuffle_training=True, max_time=None):
+	def dataloader(dset, shuffle, time_limit=None):
 		return torch.utils.data.DataLoader(
 			dset,
 			batch_size=bsz,
 			drop_last=True,
-			collate_fn=collate_fn,
+			collate_fn=partial(collate_fn, max_time=time_limit),
 			shuffle=shuffle,
 			generator=rng,
 			num_workers=6
 		)
-	train_loader = dataloader(train_data, shuffle=shuffle_training)
+	train_loader = dataloader(train_data, shuffle=shuffle_training, time_limit=max_time)
 	val_loader = dataloader(val_data, shuffle=False)
 	test_loader = dataloader(test_data, shuffle=False)
 	return train_loader, val_loader, test_loader
@@ -123,7 +147,7 @@ def create_events_shd_classification_dataset(
 		bsz: int = 50,
 		seed: int = 42,
 		**kwargs
-) -> ReturnType:
+) -> Data:
 	"""
 	creates a view of the spiking heidelberg digits dataset
 
@@ -154,21 +178,17 @@ def create_events_shd_classification_dataset(
 		bsz=bsz, rng=rng, shuffle_training=True
 	)
 
-	aux_loaders = {}
-	N_CLASSES = 20
-	SEQ_LENGTH = 16384  # if sequence length is longer than the inputs seq len, will pad in function `prep_batch`
-	IN_DIM = 700
-	TRAIN_SIZE = len(train_data)
-
-	return train_loader, val_loader, test_loader, aux_loaders, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE
-
+	return Data(
+		train_loader, val_loader, test_loader, aux_loaders={},
+		n_classes=20, in_dim=700, train_pad_length=16384, test_pad_length=16384, train_size=len(train_data)
+	)
 
 def create_events_ssc_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
 		bsz: int = 50,
 		seed: int = 42,
 		**kwargs
-) -> ReturnType:
+) -> Data:
 	"""
 	creates a view of the spiking speech commands dataset
 
@@ -194,13 +214,10 @@ def create_events_ssc_classification_dataset(
 		bsz=bsz, rng=rng, shuffle_training=True
 	)
 
-	aux_loaders = {}
-	N_CLASSES = 35
-	SEQ_LENGTH = 20480  # choose a multiple of 1024 that is just larger than the longest sequence
-	IN_DIM = 700
-	TRAIN_SIZE = len(train_data)
-
-	return train_loader, val_loader, test_loader, aux_loaders, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE
+	return Data(
+		train_loader, val_loader, test_loader, aux_loaders={},
+		n_classes=35, in_dim=700, train_pad_length=20480, test_pad_length=20480, train_size=len(train_data)
+	)
 
 
 def create_events_dvs_gesture_classification_dataset(
@@ -209,7 +226,7 @@ def create_events_dvs_gesture_classification_dataset(
 		seed: int = 42,
 		pad: int = 262144,
 		max_time: int = None
-) -> ReturnType:
+) -> Data:
 	"""
 	creates a view of the DVS Gesture dataset
 
@@ -239,25 +256,21 @@ def create_events_dvs_gesture_classification_dataset(
 
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=(128, 128), max_time=max_time),
-		bsz=bsz, rng=rng, shuffle_training=False
+		collate_fn=partial(event_stream_collate_fn, resolution=(128, 128)),
+		bsz=bsz, rng=rng, shuffle_training=False, max_time=max_time
 	)
 
-	aux_loaders = {}
-	N_CLASSES = 11
-	SEQ_LENGTH = pad  # if sequence length is longer than the inputs seq len, will pad in function `prep_batch`
-	IN_DIM = 128 * 128 * 2
-	TRAIN_SIZE = len(train_data)
-
-	return train_loader, val_loader, test_loader, aux_loaders, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE
-
+	return Data(
+		train_loader, val_loader, test_loader, aux_loaders={},
+		n_classes=11, in_dim=128 * 128 * 2, train_pad_length=pad, test_pad_length=1595392, train_size=len(train_data)
+	)
 
 def create_speechcommands35_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
 		bsz: int = 50,
 		seed: int = 42,
 		**kwargs
-) -> ReturnType:
+) -> Data:
 	"""
 	AG inexplicably moved away from using a cache dir...  Grumble.
 	The `cache_dir` will effectively be ./raw_datasets/speech_commands/0.0.2 .
@@ -298,7 +311,10 @@ def create_speechcommands35_classification_dataset(
 		'testloader2': tst_loader_2,
 	}
 
-	return trn_loader, val_loader, tst_loader, aux_loaders, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE
+	return Data(
+		trn_loader, val_loader, tst_loader, aux_loaders=aux_loaders,
+		n_classes=N_CLASSES, in_dim=IN_DIM, train_pad_length=SEQ_LENGTH, test_pad_length=SEQ_LENGTH, train_size=TRAIN_SIZE
+	)
 
 
 Datasets = {
