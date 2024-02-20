@@ -26,6 +26,8 @@ class StackedEncoderModel(nn.Module):
     discretizations: str
     d_model: int
     n_layers: int
+    tokenized: bool = False
+    num_embeddings: int = 0
     activation: str = "gelu"
     dropout: float = 0.0
     training: bool = True
@@ -39,7 +41,13 @@ class StackedEncoderModel(nn.Module):
         Initializes a linear encoder and the stack of S5 layers.
         """
         # don't use bias to void zero tokens to produce an input
-        self.encoder = nn.Dense(self.d_model, use_bias=False)
+        if self.tokenized:
+            assert self.num_embeddings > 0
+            print("Using tokenized input")
+            self.encoder = nn.Embed(num_embeddings=self.num_embeddings, features=self.d_model)
+        else:
+            self.encoder = nn.Dense(self.d_model)
+
         self.layers = [
             SequenceLayer(
                 ssm=self.ssm,
@@ -87,6 +95,40 @@ def masked_meanpool(x, lengths):
     return np.sum(mask[..., None]*x, axis=0)/lengths
 
 
+def timepool(x, integration_timesteps):
+    """
+    Helper function to perform weighted mean across the sequence length.
+    Means are weighted with the integration time steps
+    Args:
+         x (float32): input sequence (L, d_model)
+    Returns:
+        mean pooled output sequence (float32): (d_model)
+    """
+    T = np.sum(integration_timesteps, axis=0)
+    # using the Trapezoidal rule to integrate
+    integral = np.sum((x[1:] + x[:-1]) / 2 * integration_timesteps[..., None], axis=0)
+    return integral / T
+
+
+def masked_timepool(x, lengths, integration_timesteps):
+    """
+    Helper function to perform weighted mean across the sequence length
+    when sequences have variable lengths. We only want to pool across
+    the prepadded sequence length. Means are weighted with the integration time steps
+    Args:
+         x (float32): input sequence (L, d_model)
+         lengths (int32):   the original length of the sequence before padding
+    Returns:
+        mean pooled output sequence (float32): (d_model)
+    """
+    L = x.shape[0]
+    mask = np.arange(L - 1) < lengths
+    T = np.sum(integration_timesteps)
+    # using the Trapezoidal rule to integrate
+    integral = np.sum(mask[..., None] * (x[1:] + x[:-1]) / 2 * integration_timesteps[..., None], axis=0)
+    return integral / T
+
+
 # Here we call vmap to parallelize across a batch of input sequences
 batch_masked_meanpool = jax.vmap(masked_meanpool)
 
@@ -120,6 +162,8 @@ class ClassificationModel(nn.Module):
     d_model: int
     n_layers: int
     padded: bool
+    tokenized: bool = False
+    num_embeddings: int = 0
     activation: str = "gelu"
     dropout: float = 0.2
     training: bool = True
@@ -138,6 +182,8 @@ class ClassificationModel(nn.Module):
                             discretizations=self.discretization,
                             d_model=self.d_model,
                             n_layers=self.n_layers,
+                            tokenized=self.tokenized,
+                            num_embeddings=self.num_embeddings,
                             activation=self.activation,
                             dropout=self.dropout,
                             training=self.training,
@@ -167,6 +213,11 @@ class ClassificationModel(nn.Module):
                 x = masked_meanpool(x, length)
             else:
                 x = np.mean(x, axis=0)
+        elif self.mode in ["timepool"]:
+            if self.padded:
+                x = masked_timepool(x, length, integration_timesteps)
+            else:
+                x = timepool(x, integration_timesteps)
 
         elif self.mode in ["last"]:
             # Just take the last state

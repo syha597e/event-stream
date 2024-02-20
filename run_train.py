@@ -36,7 +36,7 @@ if __name__ == "__main__":
 							 "lecun_normal sample from lecun normal, then multiply by V\\ " \
 							 "complex_normal: sample directly from complex standard normal")
 	parser.add_argument("--discretization", type=str, default="zoh", choices=["zoh", "bilinear", "dirac"])
-	parser.add_argument("--mode", type=str, default="pool", choices=["pool", "last"],
+	parser.add_argument("--mode", type=str, default="pool", choices=["pool", "last", "timepool"],
 						help="options: (for classification tasks) \\" \
 							 " pool: mean pooling \\" \
 							 "last: take last element")
@@ -60,6 +60,10 @@ if __name__ == "__main__":
 						help="batchnorm momentum")
 	parser.add_argument("--bsz", type=int, default=64,
 						help="batch size")
+	parser.add_argument("--max_time_per_sample", type=int, default=None,
+						help="Set a time limit on sample length to fit very long samples into GPU memory during training")
+	parser.add_argument("--max_events_per_sample", type=int, default=None,
+						help="Default number of events padded to in each sequence")
 	parser.add_argument("--epochs", type=int, default=100,
 						help="max number of epochs")
 	parser.add_argument("--early_stop_patience", type=int, default=1000,

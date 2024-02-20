@@ -45,8 +45,16 @@ def train(args):
     create_dataset_fn = Datasets[args.dataset]
 
     # Dataset dependent logic
-    if args.dataset in ["imdb-classification", "listops-classification", "aan-classification", "shd-classification"]:
+    if args.dataset in [
+        "imdb-classification",
+        "listops-classification",
+        "aan-classification",
+        "shd-classification",
+        "ssc-classification",
+        "dvs-gesture-classification",
+    ]:
         padded = True
+        tokenized = True
         if args.dataset in ["aan-classification"]:
             # Use retreival model for document matching
             retrieval = True
@@ -56,7 +64,15 @@ def train(args):
 
     else:
         padded = False
+        tokenized = False
         retrieval = False
+
+    if args.dataset in ["shd-classification", "ssc-classification"]:
+        num_embeddings = 700
+    elif args.dataset in ["dvs-gesture-classification"]:
+        num_embeddings = 128 * 128 * 2
+    else:
+        num_embeddings = 0
 
     # For speech dataset
     if args.dataset in ["speech35-classification"]:
@@ -67,8 +83,10 @@ def train(args):
 
     # Create dataset...
     init_rng, key = random.split(init_rng, num=2)
-    trainloader, valloader, testloader, aux_dataloaders, n_classes, seq_len, in_dim, train_size = \
-      create_dataset_fn(args.dir_name, seed=args.jax_seed, bsz=args.bsz)
+    data = create_dataset_fn(
+            args.dir_name, seed=args.jax_seed, bsz=args.bsz,
+            max_time=args.max_time_per_sample, pad=args.max_events_per_sample
+        )
 
     print(f"[*] Starting S5 Training on `{args.dataset}` =>> Initializing...")
 
@@ -100,6 +118,7 @@ def train(args):
                              V=V,
                              Vinv=Vinv,
                              C_init=args.C_init,
+                             discretization=args.discretization,
                              dt_min=args.dt_min,
                              dt_max=args.dt_max,
                              conj_sym=args.conj_sym,
@@ -111,7 +130,7 @@ def train(args):
         model_cls = partial(
             RetrievalModel,
             ssm=ssm_init_fn,
-            d_output=n_classes,
+            d_output=data.n_classes,
             d_model=args.d_model,
             n_layers=args.n_layers,
             padded=padded,
@@ -127,9 +146,11 @@ def train(args):
             BatchClassificationModel,
             ssm=ssm_init_fn,
             discretization=args.discretization,
-            d_output=n_classes,
+            d_output=data.n_classes,
             d_model=args.d_model,
             n_layers=args.n_layers,
+            tokenized=tokenized,
+            num_embeddings=num_embeddings,
             padded=padded,
             activation=args.activation_fn,
             dropout=args.p_dropout,
@@ -144,9 +165,10 @@ def train(args):
                                init_rng,
                                padded,
                                retrieval,
-                               in_dim=in_dim,
+                               tokenized=tokenized,
+                               in_dim=data.in_dim,
                                bsz=args.bsz,
-                               seq_len=seq_len,
+                               seq_len=data.train_pad_length,
                                weight_decay=args.weight_decay,
                                batchnorm=args.batchnorm,
                                opt_config=args.opt_config,
@@ -159,7 +181,7 @@ def train(args):
     count, best_val_loss = 0, 100000000  # This line is for early stopping purposes
     lr_count, opt_acc = 0, -100000000.0  # This line is for learning rate decay
     step = 0  # for per step learning rate decay
-    steps_per_epoch = int(train_size/args.bsz)
+    steps_per_epoch = int(data.train_size/args.bsz)
     for epoch in range(args.epochs):
         print(f"[*] Starting Training Epoch {epoch + 1}...")
 
@@ -178,6 +200,10 @@ def train(args):
             decay_function = constant_lr
             end_step = None
 
+        # set step to 0 to properly handle learning rate schedule
+        if epoch == args.warmup_end:
+            step = 0
+
         # TODO: Switch to letting Optax handle this.
         #  Passing this around to manually handle per step learning rate decay.
         lr_params = (decay_function, ssm_lr, lr, step, end_step, args.opt_config, args.lr_min)
@@ -186,27 +212,27 @@ def train(args):
         state, train_loss, step = train_epoch(state,
                                               skey,
                                               model_cls,
-                                              trainloader,
-                                              seq_len,
-                                              in_dim,
+                                              data.train_loader,
+                                              data.train_pad_length,
+                                              data.in_dim,
                                               args.batchnorm,
                                               lr_params)
 
-        if valloader is not None:
+        if data.val_loader is not None:
             print(f"[*] Running Epoch {epoch + 1} Validation...")
             val_loss, val_acc = validate(state,
                                          model_cls,
-                                         valloader,
-                                         seq_len,
-                                         in_dim,
+                                         data.val_loader,
+                                         data.test_pad_length,
+                                         data.in_dim,
                                          args.batchnorm)
 
             print(f"[*] Running Epoch {epoch + 1} Test...")
             test_loss, test_acc = validate(state,
                                            model_cls,
-                                           testloader,
-                                           seq_len,
-                                           in_dim,
+                                           data.test_loader,
+                                           data.test_pad_length,
+                                           data.in_dim,
                                            args.batchnorm)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
@@ -221,9 +247,9 @@ def train(args):
             print(f"[*] Running Epoch {epoch + 1} Test...")
             val_loss, val_acc = validate(state,
                                          model_cls,
-                                         testloader,
-                                         seq_len,
-                                         in_dim,
+                                         data.test_loader,
+                                         data.test_pad_length,
+                                         data.in_dim,
                                          args.batchnorm)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
@@ -243,7 +269,7 @@ def train(args):
             # Increment counters etc.
             count = 0
             best_loss, best_acc, best_epoch = val_loss, val_acc, epoch
-            if valloader is not None:
+            if data.val_loader is not None:
                 best_test_loss, best_test_acc = test_loss, test_acc
             else:
                 best_test_loss, best_test_acc = best_loss, best_acc
@@ -254,14 +280,14 @@ def train(args):
                 print(f"[*] Running Epoch {epoch + 1} Res 2 Validation...")
                 val2_loss, val2_acc = validate(state,
                                                model_cls,
-                                               aux_dataloaders['valloader2'],
-                                               int(seq_len // 2),
-                                               in_dim,
+                                               data.aux_loaders['valloader2'],
+                                               int(data.test_pad_length // 2),
+                                               data.in_dim,
                                                args.batchnorm,
                                                step_rescale=2.0)
 
                 print(f"[*] Running Epoch {epoch + 1} Res 2 Test...")
-                test2_loss, test2_acc = validate(state, model_cls, aux_dataloaders['testloader2'], int(seq_len // 2), in_dim, args.batchnorm, step_rescale=2.0)
+                test2_loss, test2_acc = validate(state, model_cls, data.aux_loaders['testloader2'], int(data.test_pad_length // 2), data.in_dim, args.batchnorm, step_rescale=2.0)
                 print(f"\n=>> Epoch {epoch + 1} Res 2 Metrics ===")
                 print(
                     f"\tVal2 Loss: {val2_loss:.5f} --Test2 Loss: {test2_loss:.5f} --"
@@ -281,7 +307,7 @@ def train(args):
             f" {best_test_acc:.4f} at Epoch {best_epoch + 1}\n"
         )
 
-        if valloader is not None:
+        if data.val_loader is not None:
             if speech:
                 wandb.log(
                     {
