@@ -36,6 +36,8 @@ if __name__ == "__main__":
 							 "lecun_normal sample from lecun normal, then multiply by V\\ " \
 							 "complex_normal: sample directly from complex standard normal")
 	parser.add_argument("--discretization", type=str, default="zoh", choices=["zoh", "bilinear", "dirac"])
+	parser.add_argument("--first_layer_discretization", type=str, default="dirac", choices=["zoh", "bilinear", "dirac"],
+						help="discretization for first layer")
 	parser.add_argument("--mode", type=str, default="pool", choices=["pool", "last", "timepool"],
 						help="options: (for classification tasks) \\" \
 							 " pool: mean pooling \\" \

@@ -94,7 +94,6 @@ class S5SSM(nn.Module):
     Lambda_im_init: np.array
     V: np.array
     Vinv: np.array
-
     H: int
     P: int
     C_init: str

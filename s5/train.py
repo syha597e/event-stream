@@ -146,6 +146,7 @@ def train(args):
             BatchClassificationModel,
             ssm=ssm_init_fn,
             discretization=args.discretization,
+            discretization_first_layer=args.first_layer_discretization,
             d_output=data.n_classes,
             d_model=args.d_model,
             n_layers=args.n_layers,

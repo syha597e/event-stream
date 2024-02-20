@@ -23,7 +23,8 @@ class StackedEncoderModel(nn.Module):
                                     the speech commands benchmark
     """
     ssm: nn.Module
-    discretizations: str
+    discretization: str
+    discretization_first_layer: str
     d_model: int
     n_layers: int
     tokenized: bool = False
@@ -51,7 +52,7 @@ class StackedEncoderModel(nn.Module):
         self.layers = [
             SequenceLayer(
                 ssm=self.ssm,
-                discretization="dirac" if l == 0 else self.discretizations,
+                discretization=self.discretization_first_layer if l == 0 else self.discretization,
                 dropout=self.dropout,
                 d_model=self.d_model,
                 activation=self.activation,
@@ -158,6 +159,7 @@ class ClassificationModel(nn.Module):
     """
     ssm: nn.Module
     discretization: str
+    discretization_first_layer: str
     d_output: int
     d_model: int
     n_layers: int
@@ -179,7 +181,8 @@ class ClassificationModel(nn.Module):
         """
         self.encoder = StackedEncoderModel(
                             ssm=self.ssm,
-                            discretizations=self.discretization,
+                            discretization=self.discretization,
+                            discretization_first_layer=self.discretization_first_layer,
                             d_model=self.d_model,
                             n_layers=self.n_layers,
                             tokenized=self.tokenized,
