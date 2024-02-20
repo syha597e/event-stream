@@ -58,7 +58,7 @@ def make_data_loader(dset,
 									   drop_last=drop_last, generator=rng)
 
 
-def event_stream_collate_fn(batch, resolution):
+def event_stream_collate_fn(batch, resolution, max_time=None):
 	# x are inputs, y are targets, z are aux data
 	x, y, *z = zip(*batch)
 	assert len(z) == 0
@@ -74,8 +74,14 @@ def event_stream_collate_fn(batch, resolution):
 	else:
 		raise ValueError('resolution must contain 1 or 2 elements')
 
+	# drop of events later than max_time
+	if max_time is not None:
+		mask = [e <= max_time for e in timesteps]
+		timesteps = [e[m] for e, m in zip(timesteps, mask)]
+		tokens = [e[m] for e, m in zip(tokens, mask)]
+
 	# pad time steps with final time-step -> this is a bit of a hack to make the integration time steps 0
-	lengths = torch.tensor([len(e) for e in x], dtype=torch.long)
+	lengths = torch.tensor([len(e) for e in timesteps], dtype=torch.long)
 	max_length = lengths.max().item()
 	timesteps = torch.stack([pad(e, (0, max_length - len(e)), 'constant', e[-1]) for e in timesteps])
 
@@ -226,14 +232,14 @@ def create_events_dvs_gesture_classification_dataset(
 
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=(128, 128)),
-		bsz=bsz, rng=rng, shuffle_training=True
+		collate_fn=partial(event_stream_collate_fn, resolution=(128, 128), max_time=1e6),
+		bsz=bsz, rng=rng, shuffle_training=False
 	)
 
 	aux_loaders = {}
 	N_CLASSES = 11
-	SEQ_LENGTH = 1024 * 1024  # if sequence length is longer than the inputs seq len, will pad in function `prep_batch`
-	IN_DIM = 128
+	SEQ_LENGTH = 2 * 131072  # if sequence length is longer than the inputs seq len, will pad in function `prep_batch`
+	IN_DIM = 128 * 128 * 2
 	TRAIN_SIZE = len(train_data)
 
 	return train_loader, val_loader, test_loader, aux_loaders, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE
