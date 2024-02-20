@@ -6,6 +6,7 @@ import tonic
 from functools import partial
 from torch.nn.functional import pad
 import numpy as np
+from s5.transform import CropEvents
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
@@ -119,18 +120,18 @@ def event_stream_collate_fn(batch, resolution, max_time=None):
 	return tokens, y, {'timesteps': timesteps, 'lengths': lengths}
 
 
-def event_stream_dataloader(train_data, val_data, test_data, bsz, collate_fn, rng, shuffle_training=True, max_time=None):
+def event_stream_dataloader(train_data, val_data, test_data, bsz, collate_fn, rng, shuffle_training=True):
 	def dataloader(dset, shuffle, time_limit=None):
 		return torch.utils.data.DataLoader(
 			dset,
 			batch_size=bsz,
 			drop_last=True,
-			collate_fn=partial(collate_fn, max_time=time_limit),
+			collate_fn=collate_fn,
 			shuffle=shuffle,
 			generator=rng,
 			num_workers=6
 		)
-	train_loader = dataloader(train_data, shuffle=shuffle_training, time_limit=max_time)
+	train_loader = dataloader(train_data, shuffle=shuffle_training)
 	val_loader = dataloader(val_data, shuffle=False)
 	test_loader = dataloader(test_data, shuffle=False)
 	return train_loader, val_loader, test_loader
@@ -234,8 +235,7 @@ def create_events_dvs_gesture_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
 		bsz: int = 50,
 		seed: int = 42,
-		pad: int = 262144,
-		max_time: int = None
+		crop_events: int = None
 ) -> Data:
 	"""
 	creates a view of the DVS Gesture dataset
@@ -246,8 +246,8 @@ def create_events_dvs_gesture_classification_dataset(
 	"""
 	print("[*] Generating DVS Gesture Classification Dataset")
 
-	assert isinstance(pad, int), "default_num_events must be an integer"
-	assert pad > 0, "default_num_events must be a positive integer"
+	assert isinstance(crop_events, int), "default_num_events must be an integer"
+	assert crop_events > 0, "default_num_events must be a positive integer"
 
 	if seed is not None:
 		rng = torch.Generator()
@@ -255,13 +255,15 @@ def create_events_dvs_gesture_classification_dataset(
 	else:
 		rng = None
 
-	transforms = tonic.transforms.Compose(
-		[
-			tonic.transforms.TimeJitter(std=100, clip_negative=False, sort_timestamps=True),
-			tonic.transforms.DropEvent(p=0.1),
-			tonic.transforms.TimeSkew(coefficient=(0.9, 1.15), offset=0)
-		]
-	)
+	transforms = [
+		tonic.transforms.TimeJitter(std=100, clip_negative=False, sort_timestamps=True),
+		tonic.transforms.DropEvent(p=0.1),
+		tonic.transforms.TimeSkew(coefficient=(0.9, 1.15), offset=0)
+	]
+	if crop_events is not None:
+		transforms.append(CropEvents(crop_events))
+
+	transforms = tonic.transforms.Compose(transforms)
 
 	train_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=transforms)
 	val_length = int(0.1 * len(train_data))
@@ -275,12 +277,12 @@ def create_events_dvs_gesture_classification_dataset(
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
 		collate_fn=partial(event_stream_collate_fn, resolution=(128, 128)),
-		bsz=bsz, rng=rng, shuffle_training=False, max_time=max_time
+		bsz=bsz, rng=rng, shuffle_training=False
 	)
 
 	return Data(
 		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=11, in_dim=128 * 128 * 2, train_pad_length=pad, test_pad_length=1595392, train_size=len(train_data)
+		n_classes=11, in_dim=128 * 128 * 2, train_pad_length=crop_events, test_pad_length=1595392, train_size=len(train_data)
 	)
 
 def create_speechcommands35_classification_dataset(

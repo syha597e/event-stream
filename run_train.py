@@ -62,8 +62,6 @@ if __name__ == "__main__":
 						help="batchnorm momentum")
 	parser.add_argument("--bsz", type=int, default=64,
 						help="batch size")
-	parser.add_argument("--max_time_per_sample", type=int, default=None,
-						help="Set a time limit on sample length to fit very long samples into GPU memory during training")
 	parser.add_argument("--max_events_per_sample", type=int, default=None,
 						help="Default number of events padded to in each sequence")
 	parser.add_argument("--epochs", type=int, default=100,
