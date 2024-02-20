@@ -258,7 +258,10 @@ def create_events_dvs_gesture_classification_dataset(
 	transforms = [
 		tonic.transforms.TimeJitter(std=100, clip_negative=False, sort_timestamps=True),
 		tonic.transforms.DropEvent(p=0.1),
-		tonic.transforms.TimeSkew(coefficient=(0.9, 1.15), offset=0)
+		tonic.transforms.TimeSkew(coefficient=(0.9, 1.15), offset=0),
+		tonic.transforms.RandomFlipLR(sensor_size=(128, 128, 2), p=0.2),
+		tonic.transforms.SpatialJitter(sensor_size=(128, 128, 2), var_x=4, var_y=4, clip_outliers=True),
+		tonic.transforms.DropEventByArea(sensor_size=(128, 128, 2), area_ratio=(0.05, 0.2))
 	]
 	if crop_events is not None:
 		transforms.append(CropEvents(crop_events))
