@@ -40,6 +40,20 @@ def discretize_zoh(Lambda, Delta):
     return Lambda_bar, gamma_bar
 
 
+def discretize_dirac(Lambda, Delta):
+    """ Discretize a diagonalized, continuous-time linear SSM
+        with dirac delta input spikes.
+        Args:
+            Lambda (complex64): diagonal state matrix              (P,)
+            Delta (float32): discretization step sizes             (P,)
+        Returns:
+            discretized Lambda_bar (complex64), B_bar (complex64)  (P,), (P,H)
+    """
+    Lambda_bar = np.exp(Lambda * Delta)
+    gamma_bar = 1.0
+    return Lambda_bar, gamma_bar
+
+
 # Parallel scan operations
 @jax.vmap
 def binary_operator(q_i, q_j):
@@ -80,7 +94,6 @@ class S5SSM(nn.Module):
     Lambda_im_init: np.array
     V: np.array
     Vinv: np.array
-
     H: int
     P: int
     C_init: str
@@ -189,6 +202,8 @@ class S5SSM(nn.Module):
             self.discretize_fn = discretize_zoh
         elif self.discretization in ["bilinear"]:
             self.discretize_fn = discretize_bilinear
+        elif self.discretization in ["dirac"]:
+            self.discretize_fn = discretize_dirac
         else:
             raise NotImplementedError("Discretization method {} not implemented".format(self.discretization))
 
