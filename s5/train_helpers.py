@@ -342,8 +342,8 @@ def prep_batch(batch: tuple,
         integration_timesteps = np.diff(timesteps)
         if num_pad > 0:
             integration_timesteps = jax.jit(jax.vmap(
-                lambda t, e: np.pad(t, pad_width=(0, num_pad), mode='constant', constant_values=(e,)),
-            ))(integration_timesteps, timesteps[:, -1])
+                lambda t: np.pad(t, pad_width=(0, num_pad), mode='constant', constant_values=0),
+            ))(integration_timesteps)
     else:
         integration_timesteps = np.ones((len(inputs), seq_len - 1))
 
