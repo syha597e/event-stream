@@ -27,7 +27,7 @@ if __name__ == "__main__":
 							 "dimension of layer inputs/outputs")
 	parser.add_argument("--ssm_size_base", type=int, default=256,
 						help="SSM Latent size, i.e. P")
-	parser.add_argument("--blocks", type=int, default=8,
+	parser.add_argument("--block_size", type=int, default=16,
 						help="How many blocks, J, to initialize with")
 	parser.add_argument("--C_init", type=str, default="trunc_standard_normal",
 						choices=["trunc_standard_normal", "lecun_normal", "complex_normal"],
@@ -52,6 +52,13 @@ if __name__ == "__main__":
 						help="min value to sample initial timescale params from")
 	parser.add_argument("--dt_max", type=float, default=0.1,
 						help="max value to sample initial timescale params from")
+	parser.add_argument("--stride", type=int, default=1,
+						help="stride for event pooling")
+	parser.add_argument("--pool_every_n_layers", type=int, default=99999,
+						help="Apply stride every n layers")
+	parser.add_argument("--pooling_mode", type=str, default="last",
+						choices=["last", "mean"],
+						help="Select mode to pool events")
 
 	# Optimization Parameters
 	parser.add_argument("--prenorm", type=str2bool, default=True,

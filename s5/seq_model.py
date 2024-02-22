@@ -3,6 +3,7 @@ import jax.numpy as np
 from flax import linen as nn
 from .layers import SequenceLayer
 from typing import Callable
+import numpy
 
 
 class StackedEncoderModel(nn.Module):
@@ -26,6 +27,8 @@ class StackedEncoderModel(nn.Module):
     discretization: str
     discretization_first_layer: str
     d_model: int
+    d_ssm: int
+    block_size: int
     n_layers: int
     tokenized: bool = False
     num_embeddings: int = 0
@@ -36,6 +39,9 @@ class StackedEncoderModel(nn.Module):
     batchnorm: bool = False
     bn_momentum: float = 0.9
     step_rescale: float = 1.0
+    stride: int = 1
+    pool_every_n_layers: int = 1
+    pooling_mode: str = "last"
 
     def setup(self):
         """
@@ -49,18 +55,29 @@ class StackedEncoderModel(nn.Module):
         else:
             self.encoder = nn.Dense(self.d_model)
 
+        # generate strides for the model
+        strides = [1] + [self.stride if l % self.pool_every_n_layers == 0 else 1 for l in range(self.n_layers - 2)] + [1]
+
+        # generate model input dimensions from strides, where the first layer always has model dimension
+        expansion_factors = [1 if s == 1 else 2 for s in strides[:-1]]
+        model_dims = [self.d_model] + (self.d_model * numpy.cumprod(expansion_factors)).astype(np.int32).tolist()
+        ssm_dims = [self.d_ssm] + (self.d_ssm * numpy.cumprod(expansion_factors)).astype(np.int32).tolist()
         self.layers = [
             SequenceLayer(
                 ssm=self.ssm,
                 discretization=self.discretization_first_layer if l == 0 else self.discretization,
                 dropout=self.dropout,
-                d_model=self.d_model,
+                d_model=model_dims[l],
+                d_ssm=ssm_dims[l],
+                block_size=self.block_size,
                 activation=self.activation,
                 training=self.training,
                 prenorm=self.prenorm,
                 batchnorm=self.batchnorm,
                 bn_momentum=self.bn_momentum,
                 step_rescale=self.step_rescale,
+                stride=strides[l],
+                pooling_mode=self.pooling_mode
             )
             for l in range(self.n_layers)
         ]
@@ -75,9 +92,10 @@ class StackedEncoderModel(nn.Module):
             output sequence (float32): (L, d_model)
         """
         x = self.encoder(x)
-        for layer in self.layers:
-            x = layer(x, integration_timesteps)
-        return x
+        for i, layer in enumerate(self.layers):
+            # apply layer SSM
+            x, integration_timesteps = layer(x, integration_timesteps)
+        return x, integration_timesteps
 
 
 def masked_meanpool(x, lengths):
@@ -162,6 +180,8 @@ class ClassificationModel(nn.Module):
     discretization_first_layer: str
     d_output: int
     d_model: int
+    d_ssm: int
+    block_size: int
     n_layers: int
     padded: bool
     tokenized: bool = False
@@ -174,27 +194,35 @@ class ClassificationModel(nn.Module):
     batchnorm: bool = False
     bn_momentum: float = 0.9
     step_rescale: float = 1.0
+    stride: int = 1
+    pool_every_n_layers: int = 1
+    pooling_mode: str = "last"
 
     def setup(self):
         """
         Initializes the S5 stacked encoder and a linear decoder.
         """
         self.encoder = StackedEncoderModel(
-                            ssm=self.ssm,
-                            discretization=self.discretization,
-                            discretization_first_layer=self.discretization_first_layer,
-                            d_model=self.d_model,
-                            n_layers=self.n_layers,
-                            tokenized=self.tokenized,
-                            num_embeddings=self.num_embeddings,
-                            activation=self.activation,
-                            dropout=self.dropout,
-                            training=self.training,
-                            prenorm=self.prenorm,
-                            batchnorm=self.batchnorm,
-                            bn_momentum=self.bn_momentum,
-                            step_rescale=self.step_rescale,
-                                        )
+            ssm=self.ssm,
+            discretization=self.discretization,
+            discretization_first_layer=self.discretization_first_layer,
+            d_model=self.d_model,
+            d_ssm=self.d_ssm,
+            block_size=self.block_size,
+            n_layers=self.n_layers,
+            tokenized=self.tokenized,
+            num_embeddings=self.num_embeddings,
+            activation=self.activation,
+            dropout=self.dropout,
+            training=self.training,
+            prenorm=self.prenorm,
+            batchnorm=self.batchnorm,
+            bn_momentum=self.bn_momentum,
+            step_rescale=self.step_rescale,
+            stride=self.stride,
+            pool_every_n_layers=self.pool_every_n_layers,
+            pooling_mode=self.pooling_mode
+        )
         self.decoder = nn.Dense(self.d_output)
 
     def __call__(self, x, integration_timesteps):
@@ -209,7 +237,7 @@ class ClassificationModel(nn.Module):
         if self.padded:
             x, length = x  # input consists of data and prepadded seq lens
 
-        x = self.encoder(x, integration_timesteps)
+        x, integration_timesteps = self.encoder(x, integration_timesteps)
         if self.mode in ["pool"]:
             # Perform mean pooling across time
             if self.padded:

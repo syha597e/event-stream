@@ -1,10 +1,14 @@
 from functools import partial
 import jax
 import jax.numpy as np
+from jax.scipy.linalg import block_diag
+
 from flax import linen as nn
 from jax.nn.initializers import lecun_normal, normal
 
-from .ssm_init import init_CV, init_VinvB, init_log_steps, trunc_standard_normal
+from .ssm_init import init_CV, init_VinvB, init_log_steps, trunc_standard_normal, make_DPLR_HiPPO
+
+from .layers import EventPooling
 
 
 # Discretization functions
@@ -69,7 +73,7 @@ def binary_operator(q_i, q_j):
     return A_j * A_i, A_j * b_i + b_j
 
 
-def apply_ssm(Lambda_elements, Bu_elements, C_tilde, conj_sym):
+def apply_ssm(Lambda_elements, Bu_elements, C_tilde, conj_sym, stride=1):
     """ Compute the LxH output of discretized SSM given an LxH input.
         Args:
             Lambda_bar (complex64): discretized diagonal state matrix    (P,)
@@ -83,6 +87,8 @@ def apply_ssm(Lambda_elements, Bu_elements, C_tilde, conj_sym):
 
     _, xs = jax.lax.associative_scan(binary_operator, (Lambda_elements, Bu_elements))
 
+    xs = xs[::stride]
+
     if conj_sym:
         return jax.vmap(lambda x: 2*(C_tilde @ x).real)(xs)
     else:
@@ -90,12 +96,9 @@ def apply_ssm(Lambda_elements, Bu_elements, C_tilde, conj_sym):
 
 
 class S5SSM(nn.Module):
-    Lambda_re_init: np.array
-    Lambda_im_init: np.array
-    V: np.array
-    Vinv: np.array
     H: int
     P: int
+    block_size: int
     C_init: str
     discretization: str
     dt_min: float
@@ -103,6 +106,8 @@ class S5SSM(nn.Module):
     conj_sym: bool = True
     clip_eigs: bool = False
     step_rescale: float = 1.0
+    stride: int = 1
+    pooling_mode: str = "last"
 
     """ The S5 SSM
         Args:
@@ -138,17 +143,32 @@ class S5SSM(nn.Module):
         """Initializes parameters once and performs discretization each time
            the SSM is applied to a sequence
         """
+        # if stride is larger than 1, set state_expansion to 2
+        self.state_expansion = 1 if self.stride == 1 else 2
 
-        if self.conj_sym:
-            # Need to account for case where we actually sample real B and C, and then multiply
-            # by the half sized Vinv and possibly V
-            local_P = 2*self.P
-        else:
-            local_P = self.P
+        # Initialize state matrix A using approximation to HiPPO-LegS matrix
+        Lambda, _, B, V, B_orig = make_DPLR_HiPPO(self.block_size)
+
+        blocks = self.P // self.block_size
+        block_size = self.block_size // 2 if self.conj_sym else self.block_size
+        local_P = self.P // 2 if self.conj_sym else self.P
+
+        Lambda = Lambda[:block_size]
+        V = V[:, :block_size]
+        Vc = V.conj().T
+
+        # If initializing state matrix A as block-diagonal, put HiPPO approximation
+        # on each block
+        Lambda = (Lambda * np.ones((blocks, block_size))).ravel()
+        V = block_diag(*([V] * blocks))
+        Vinv = block_diag(*([Vc] * blocks))
+
+        print(f"SSM: {self.H} -> {self.P} -> {self.H * self.state_expansion} (using pooling mode {self.pooling_mode})")
 
         # Initialize diagonal state to state matrix Lambda (eigenvalues)
-        self.Lambda_re = self.param("Lambda_re", lambda rng, shape: self.Lambda_re_init, (None,))
-        self.Lambda_im = self.param("Lambda_im", lambda rng, shape: self.Lambda_im_init, (None,))
+        self.Lambda_re = self.param("Lambda_re", lambda rng, shape: Lambda.real, (None,))
+        self.Lambda_im = self.param("Lambda_im", lambda rng, shape: Lambda.imag, (None,))
+
         if self.clip_eigs:
             self.Lambda = np.clip(self.Lambda_re, None, -1e-4) + 1j * self.Lambda_im
         else:
@@ -156,22 +176,18 @@ class S5SSM(nn.Module):
 
         # Initialize input to state (B) matrix
         B_init = lecun_normal()
-        B_shape = (local_P, self.H)
+        B_shape = (self.P, self.H)
         self.B = self.param("B",
-                            lambda rng, shape: init_VinvB(B_init,
-                                                          rng,
-                                                          shape,
-                                                          self.Vinv),
+                            lambda rng, shape: init_VinvB(B_init, rng, shape, Vinv),
                             B_shape)
-        B_tilde = self.B[..., 0] + 1j * self.B[..., 1]
 
         # Initialize state to output (C) matrix
         if self.C_init in ["trunc_standard_normal"]:
             C_init = trunc_standard_normal
-            C_shape = (self.H, local_P, 2)
+            C_shape = (self.H * self.state_expansion, self.P, 2)
         elif self.C_init in ["lecun_normal"]:
             C_init = lecun_normal()
-            C_shape = (self.H, local_P, 2)
+            C_shape = (self.H * self.state_expansion, self.P, 2)
         elif self.C_init in ["complex_normal"]:
             C_init = normal(stddev=0.5 ** 0.5)
         else:
@@ -179,23 +195,26 @@ class S5SSM(nn.Module):
                    "C_init method {} not implemented".format(self.C_init))
 
         if self.C_init in ["complex_normal"]:
-            C = self.param("C", C_init, (self.H, self.P, 2))
+            C = self.param("C", C_init, (self.H * self.state_expansion, local_P, 2))
             self.C_tilde = C[..., 0] + 1j * C[..., 1]
 
         else:
             self.C = self.param("C",
-                                lambda rng, shape: init_CV(C_init, rng, shape, self.V),
+                                lambda rng, shape: init_CV(C_init, rng, shape, V),
                                 C_shape)
 
             self.C_tilde = self.C[..., 0] + 1j * self.C[..., 1]
 
         # Initialize feedthrough (D) matrix
-        self.D = self.param("D", normal(stddev=1.0), (self.H,))
+        self.D = self.param("D", normal(stddev=1.0), (self.H * self.state_expansion,))
 
         # Initialize learnable discretization timescale value
         self.log_step = self.param("log_step",
                                    init_log_steps,
-                                   (self.P, self.dt_min, self.dt_max))
+                                   (local_P, self.dt_min, self.dt_max))
+
+        # pooling layer
+        self.pool = EventPooling(stride=self.stride, mode=self.pooling_mode)
 
         # Discretize
         if self.discretization in ["zoh"]:
@@ -226,7 +245,7 @@ class S5SSM(nn.Module):
             Bu = gamma_bar * (B @ u)
             return Lambda_bar, Bu
 
-        timesteps = np.expand_dims(np.concatenate((np.asarray((1,)), integration_timesteps)), -1)
+        timesteps = np.expand_dims(np.concatenate((np.asarray((0,)), integration_timesteps)), -1)
         Lambda_bar_elements, Bu_bar_elements = jax.vmap(discretize_and_project_inputs)(input_sequence, timesteps)
 
         ys = apply_ssm(
@@ -234,37 +253,28 @@ class S5SSM(nn.Module):
             Bu_bar_elements,
             self.C_tilde,
             self.conj_sym,
+            stride=self.stride
         )
 
-        # Add feedthrough matrix output Du;
+        if self.stride > 1:
+            input_sequence, _ = self.pool(input_sequence, integration_timesteps)
+            input_sequence = np.repeat(input_sequence, self.state_expansion, axis=1)
+
         Du = jax.vmap(lambda u: self.D * u)(input_sequence)
         return ys + Du
 
 
-def init_S5SSM(H,
-               P,
-               Lambda_re_init,
-               Lambda_im_init,
-               V,
-               Vinv,
-               C_init,
-               discretization,
-               dt_min,
-               dt_max,
-               conj_sym,
-               clip_eigs,
-               ):
+def init_S5SSM(
+        C_init,
+        dt_min,
+        dt_max,
+        conj_sym,
+        clip_eigs,
+):
     """Convenience function that will be used to initialize the SSM.
        Same arguments as defined in S5SSM above."""
     return partial(S5SSM,
-                   H=H,
-                   P=P,
-                   Lambda_re_init=Lambda_re_init,
-                   Lambda_im_init=Lambda_im_init,
-                   V=V,
-                   Vinv=Vinv,
                    C_init=C_init,
-                   discretization=discretization,
                    dt_min=dt_min,
                    dt_max=dt_max,
                    conj_sym=conj_sym,
