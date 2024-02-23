@@ -1,4 +1,12 @@
 import numpy as np
+import jax
+import jax.numpy as jnp
+from typing import Union, Tuple
+
+
+class Identity:
+    def __call__(self, events):
+        return events
 
 
 class CropEvents:

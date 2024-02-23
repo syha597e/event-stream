@@ -53,6 +53,26 @@ if __name__ == "__main__":
 	parser.add_argument("--dt_max", type=float, default=0.1,
 						help="max value to sample initial timescale params from")
 
+	# Data options
+	parser.add_argument("--max_events_per_sample", type=int, default=None,
+						help="Default number of events padded to in each sequence")
+	parser.add_argument("--time_jitter", type=float, default=100,
+						help="time jitter in micro seconds - important to reduce the overlap of events")
+	parser.add_argument("--noise", type=int, default=0,
+						help="Number of randomly added events per sample")
+	parser.add_argument("--drop_event", type=float, default=0.0,
+						help="probability of dropping an event")
+	parser.add_argument("--time_skew", type=float, default=1.01,
+						help="time skew factor (must be larger than 1)")
+	# SHD only
+	parser.add_argument("--validate_on_test", action="store_true",
+						help="whether to validate on SHD test set or create a custom validation set by random split")
+	# DVS only
+	parser.add_argument("--refractory_period", type=int, default=0,
+						help="refractory period in micro seconds")
+	parser.add_argument("--downsampling", type=int, default=1,
+						help="resolution of the DVS sensor")
+
 	# Optimization Parameters
 	parser.add_argument("--prenorm", type=str2bool, default=True,
 						help="True: use prenorm, False: use postnorm")
@@ -62,8 +82,6 @@ if __name__ == "__main__":
 						help="batchnorm momentum")
 	parser.add_argument("--bsz", type=int, default=64,
 						help="batch size")
-	parser.add_argument("--max_events_per_sample", type=int, default=None,
-						help="Default number of events padded to in each sequence")
 	parser.add_argument("--epochs", type=int, default=100,
 						help="max number of epochs")
 	parser.add_argument("--early_stop_patience", type=int, default=1000,
