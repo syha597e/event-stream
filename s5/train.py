@@ -70,7 +70,7 @@ def train(args):
     if args.dataset in ["shd-classification", "ssc-classification"]:
         num_embeddings = 700
     elif args.dataset in ["dvs-gesture-classification"]:
-        num_embeddings = 128 * 128 * 2
+        num_embeddings = (128 // args.downsampling) * (128 // args.downsampling) * 2
     else:
         num_embeddings = 0
 

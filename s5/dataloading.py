@@ -308,7 +308,7 @@ def create_events_dvs_gesture_classification_dataset(
 
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=(128, 128)),
+		collate_fn=partial(event_stream_collate_fn, resolution=new_sensor_size[:2]),
 		bsz=bsz, rng=rng, shuffle_training=False
 	)
 
