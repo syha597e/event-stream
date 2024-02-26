@@ -142,9 +142,14 @@ def masked_timepool(x, lengths, integration_timesteps):
     """
     L = x.shape[0]
     mask = np.arange(L - 1) < lengths
-    T = np.sum(integration_timesteps)
-    # using the Trapezoidal rule to integrate
-    integral = np.sum(mask[..., None] * (x[1:] + x[:-1]) / 2 * integration_timesteps[..., None], axis=0)
+    T = np.sum(integration_timesteps[1:])
+
+    # align timesteps with inputs
+    integration_timesteps = integration_timesteps[1:]
+    x = x[:-1]
+
+    # integrate with time weighting
+    integral = np.sum(mask[..., None] * x * integration_timesteps[..., None], axis=0)
     return integral / T
 
 

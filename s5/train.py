@@ -63,7 +63,7 @@ def train(args):
     if args.dataset in ["shd-classification", "ssc-classification"]:
         num_embeddings = 700
     elif args.dataset in ["dvs-gesture-classification"]:
-        num_embeddings = 128 * 128 * 2
+        num_embeddings = (128 // args.downsampling) * (128 // args.downsampling) * 2
     else:
         num_embeddings = 0
 
@@ -77,9 +77,16 @@ def train(args):
     # Create dataset...
     init_rng, key = random.split(init_rng, num=2)
     data = create_dataset_fn(
-            args.dir_name, seed=args.jax_seed, bsz=args.bsz,
-            crop_events=args.max_events_per_sample
-        )
+        args.dir_name, seed=args.jax_seed, bsz=args.bsz,
+        crop_events=args.max_events_per_sample,
+        time_jitter=args.time_jitter,
+        refractory_period=args.refractory_period,
+        noise=args.noise,
+        drop_event=args.drop_event,
+        time_skew=args.time_skew,
+        downsampling=args.downsampling,
+        validate_on_test=args.validate_on_test
+    )
 
     print(f"[*] Starting S5 Training on `{args.dataset}` =>> Initializing...")
 

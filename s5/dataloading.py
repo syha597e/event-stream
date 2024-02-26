@@ -6,7 +6,7 @@ import tonic
 from functools import partial
 from torch.nn.functional import pad
 import numpy as np
-from s5.transform import CropEvents
+from s5.transform import CropEvents, Identity
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
@@ -121,7 +121,7 @@ def event_stream_collate_fn(batch, resolution, max_time=None):
 
 
 def event_stream_dataloader(train_data, val_data, test_data, bsz, collate_fn, rng, shuffle_training=True):
-	def dataloader(dset, shuffle, time_limit=None):
+	def dataloader(dset, shuffle):
 		return torch.utils.data.DataLoader(
 			dset,
 			batch_size=bsz,
@@ -141,6 +141,11 @@ def create_events_shd_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
 		bsz: int = 50,
 		seed: int = 42,
+		time_jitter: float = 100,
+		noise: int = 100,
+		drop_event: float = 0.1,
+		time_skew: float = 1.1,
+		validate_on_test: bool = False,
 		**kwargs
 ) -> Data:
 	"""
@@ -158,21 +163,25 @@ def create_events_shd_classification_dataset(
 	else:
 		rng = None
 
-	transforms = tonic.transforms.Compose(
-		[
-			tonic.transforms.TimeJitter(std=100, clip_negative=False, sort_timestamps=True),
-			tonic.transforms.DropEvent(p=0.1),
-			tonic.transforms.TimeSkew(coefficient=(0.9, 1.15), offset=0)
-		]
-	)
+	transforms = tonic.transforms.Compose([
+		tonic.transforms.DropEvent(p=drop_event),
+		tonic.transforms.TimeSkew(coefficient=(1 / time_skew, time_skew), offset=0),
+		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
+		tonic.transforms.UniformNoise(sensor_size=(128, 128, 2), n=(0, noise))
+	])
 
 	train_data = tonic.datasets.SHD(save_to=cache_dir, train=True, transform=transforms)
-	val_length = int(0.1 * len(train_data))
-	train_data, val_data = torch.utils.data.random_split(
-		train_data,
-		lengths=[len(train_data) - val_length, val_length],
-		generator=rng
-	)
+
+	if validate_on_test:
+		print("WARNING: Using test set for validation")
+		val_data = tonic.datasets.SHD(save_to=cache_dir, train=False)
+	else:
+		val_length = int(0.1 * len(train_data))
+		train_data, val_data = torch.utils.data.random_split(
+			train_data,
+			lengths=[len(train_data) - val_length, val_length],
+			generator=rng
+		)
 	test_data = tonic.datasets.SHD(save_to=cache_dir, train=False)
 
 	train_loader, val_loader, test_loader = event_stream_dataloader(
@@ -190,6 +199,10 @@ def create_events_ssc_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
 		bsz: int = 50,
 		seed: int = 42,
+		time_jitter: float = 100,
+		noise: int = 100,
+		drop_event: float = 0.1,
+		time_skew: float = 1.1,
 		**kwargs
 ) -> Data:
 	"""
@@ -207,13 +220,12 @@ def create_events_ssc_classification_dataset(
 	else:
 		rng = None
 
-	transforms = tonic.transforms.Compose(
-		[
-			tonic.transforms.TimeJitter(std=100, clip_negative=False, sort_timestamps=True),
-			tonic.transforms.DropEvent(p=0.1),
-			tonic.transforms.TimeSkew(coefficient=(0.9, 1.15), offset=0)
-		]
-	)
+	transforms = tonic.transforms.Compose([
+		tonic.transforms.DropEvent(p=drop_event),
+		tonic.transforms.TimeSkew(coefficient=(1 / time_skew, time_skew), offset=0),
+		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
+		tonic.transforms.UniformNoise(sensor_size=(128, 128, 2), n=(0, noise))
+	])
 
 	train_data = tonic.datasets.SSC(save_to=cache_dir, split='train', transform=transforms)
 	val_data = tonic.datasets.SSC(save_to=cache_dir, split='valid')
@@ -235,7 +247,14 @@ def create_events_dvs_gesture_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
 		bsz: int = 50,
 		seed: int = 42,
-		crop_events: int = None
+		crop_events: int = None,
+		time_jitter: float = 100,
+		refractory_period: int = 0,
+		noise: int = 100,
+		drop_event: float = 0.1,
+		time_skew: float = 1.1,
+		downsampling: int = 1,
+		**kwargs
 ) -> Data:
 	"""
 	creates a view of the DVS Gesture dataset
@@ -248,6 +267,7 @@ def create_events_dvs_gesture_classification_dataset(
 
 	assert isinstance(crop_events, int), "default_num_events must be an integer"
 	assert crop_events > 0, "default_num_events must be a positive integer"
+	assert time_skew > 1, "time_skew must be greater than 1"
 
 	if seed is not None:
 		rng = torch.Generator()
@@ -255,31 +275,40 @@ def create_events_dvs_gesture_classification_dataset(
 	else:
 		rng = None
 
-	transforms = [
-		tonic.transforms.TimeJitter(std=100, clip_negative=False, sort_timestamps=True),
-		tonic.transforms.DropEvent(p=0.1),
-		tonic.transforms.TimeSkew(coefficient=(0.9, 1.15), offset=0),
-		tonic.transforms.RandomFlipLR(sensor_size=(128, 128, 2), p=0.2),
-		tonic.transforms.SpatialJitter(sensor_size=(128, 128, 2), var_x=4, var_y=4, clip_outliers=True),
-		tonic.transforms.DropEventByArea(sensor_size=(128, 128, 2), area_ratio=(0.05, 0.2))
+	orig_sensor_size = (128, 128, 2)
+	new_sensor_size = (128 // downsampling, 128 // downsampling, 2)
+	train_transforms = [
+		tonic.transforms.DropEvent(p=drop_event),
+		tonic.transforms.TimeSkew(coefficient=(1 / time_skew, time_skew), offset=0),
+		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
+		tonic.transforms.RefractoryPeriod(delta=refractory_period) if refractory_period > 0 else Identity(),
+		tonic.transforms.SpatialJitter(sensor_size=orig_sensor_size, var_x=1, var_y=1, clip_outliers=True),
+		tonic.transforms.Downsample(spatial_factor=downsampling) if downsampling > 1 else Identity(),
+		tonic.transforms.DropEventByArea(sensor_size=new_sensor_size, area_ratio=(0.05, 0.2)),
+		tonic.transforms.UniformNoise(sensor_size=new_sensor_size, n=(0, noise))
 	]
 	if crop_events is not None:
-		transforms.append(CropEvents(crop_events))
+		train_transforms.append(CropEvents(crop_events))
 
-	transforms = tonic.transforms.Compose(transforms)
+	train_transforms = tonic.transforms.Compose(train_transforms)
 
-	train_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=transforms)
+	train_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=train_transforms)
 	val_length = int(0.1 * len(train_data))
 	train_data, val_data = torch.utils.data.random_split(
 		train_data,
 		lengths=[len(train_data) - val_length, val_length],
 		generator=rng
 	)
-	test_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=False)
+
+	test_transforms = tonic.transforms.Compose([
+		tonic.transforms.Downsample(spatial_factor=downsampling) if downsampling > 1 else Identity(),
+		tonic.transforms.RefractoryPeriod(delta=refractory_period) if refractory_period > 0 else Identity()
+	])
+	test_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=False, transform=test_transforms)
 
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=(128, 128)),
+		collate_fn=partial(event_stream_collate_fn, resolution=new_sensor_size[:2]),
 		bsz=bsz, rng=rng, shuffle_training=False
 	)
 
@@ -287,6 +316,7 @@ def create_events_dvs_gesture_classification_dataset(
 		train_loader, val_loader, test_loader, aux_loaders={},
 		n_classes=11, in_dim=128 * 128 * 2, train_pad_length=crop_events, test_pad_length=1595392, train_size=len(train_data)
 	)
+
 
 def create_speechcommands35_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,

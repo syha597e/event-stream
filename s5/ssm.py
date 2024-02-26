@@ -245,8 +245,7 @@ class S5SSM(nn.Module):
             Bu = gamma_bar * (B @ u)
             return Lambda_bar, Bu
 
-        timesteps = np.expand_dims(np.concatenate((np.asarray((0,)), integration_timesteps)), -1)
-        Lambda_bar_elements, Bu_bar_elements = jax.vmap(discretize_and_project_inputs)(input_sequence, timesteps)
+        Lambda_bar_elements, Bu_bar_elements = jax.vmap(discretize_and_project_inputs)(input_sequence, integration_timesteps)
 
         ys = apply_ssm(
             Lambda_bar_elements,
