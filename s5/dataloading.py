@@ -108,13 +108,13 @@ def event_stream_collate_fn(batch, resolution, max_time=None):
 	# pad time steps with final time-step -> this is a bit of a hack to make the integration time steps 0
 	lengths = torch.tensor([len(e) for e in timesteps], dtype=torch.long)
 	max_length = lengths.max().item()
-	timesteps = torch.stack([pad(e, (0, max_length - len(e)), 'constant', e[-1]) for e in timesteps])
+	timesteps = torch.stack([pad(e, (0, max_length - l), 'constant', e[-1]) for e, l in zip(timesteps, lengths)])
 
 	# timesteps are in micro seconds... transform to milliseconds
 	timesteps = timesteps / 1000
 
 	# pad tokens with -1, which results in a zero vector with jax.nn.one_hot
-	tokens = torch.stack([pad(e, (0, max_length - len(e)), 'constant', -1) for e in tokens])
+	tokens = torch.stack([pad(e, (0, max_length - l), 'constant', -1) for e, l in zip(tokens, lengths)])
 
 	y = torch.tensor(y).int()
 	return tokens, y, {'timesteps': timesteps, 'lengths': lengths}
