@@ -5,6 +5,7 @@ import jax
 class EventPooling(nn.Module):
     stride: int = 1
     mode: str = "last"
+    eps: float = 1e-6
 
     def __call__(self, x, integration_timesteps):
         """
@@ -17,18 +18,24 @@ class EventPooling(nn.Module):
         """
         if self.stride == 1:
             raise ValueError("Stride 1 not supported for pooling")
-        if self.mode == 'last':
-            x = x[::self.stride]
-            remaining_timesteps = (len(integration_timesteps) // self.stride) * self.stride
-            integration_timesteps = integration_timesteps[:remaining_timesteps].reshape(-1, self.stride).sum(axis=1)
-            return x, integration_timesteps
-        elif self.mode == 'mean':
-            x = x.reshape(-1, self.stride, x.shape[-1]).mean(axis=1)
-            remaining_timesteps = (len(integration_timesteps) // self.stride) * self.stride
-            integration_timesteps = integration_timesteps[:remaining_timesteps].reshape(-1, self.stride).sum(axis=1)
-            return x, integration_timesteps
         else:
-            raise NotImplementedError("Stride: {} not implemented".format(self.stride))
+            remaining_timesteps = (len(integration_timesteps) // self.stride) * self.stride
+            new_integration_timesteps = integration_timesteps[:remaining_timesteps].reshape(-1, self.stride).sum(axis=1)
+            x = x[:remaining_timesteps]
+            d_model = x.shape[-1]
+            if self.mode == 'last':
+                x = x[::self.stride]
+                return x, new_integration_timesteps
+            elif self.mode == 'avgpool':
+                x = x.reshape(-1, self.stride, d_model).mean(axis=1)
+                return x, new_integration_timesteps
+            elif self.mode == 'timepool':
+                weight = integration_timesteps[..., None] + self.eps
+                x = (x * weight).reshape(-1, self.stride, d_model).sum(axis=1)
+                x = x / weight.reshape(-1, self.stride, 1).sum(axis=1)
+                return x, new_integration_timesteps
+            else:
+                raise NotImplementedError("Pooling mode: {} not implemented".format(self.stride))
 
 
 class SequenceLayer(nn.Module):
@@ -51,7 +58,8 @@ class SequenceLayer(nn.Module):
     ssm: nn.Module
     discretization: str
     dropout: float
-    d_model: int
+    d_model_in: int
+    d_model_out: int
     d_ssm: int
     block_size: int
     activation: str = "gelu"
@@ -60,22 +68,22 @@ class SequenceLayer(nn.Module):
     batchnorm: bool = False
     bn_momentum: float = 0.90
     step_rescale: float = 1.0
-    stride: int = 1
+    pooling_stride: int = 1
     pooling_mode: str = "last"
 
     def setup(self):
         """Initializes the ssm, batch/layer norm and dropout
         """
-        self.seq = self.ssm(H=self.d_model, P=self.d_ssm, block_size=self.block_size, step_rescale=self.step_rescale, discretization=self.discretization, stride=self.stride, pooling_mode=self.pooling_mode)
+        self.seq = self.ssm(H_in=self.d_model_in, H_out=self.d_model_out, P=self.d_ssm, block_size=self.block_size, step_rescale=self.step_rescale, discretization=self.discretization, stride=self.pooling_stride, pooling_mode=self.pooling_mode)
 
         if self.activation in ["full_glu"]:
-            self.out1 = nn.Dense(self.d_model * self.seq.state_expansion)
-            self.out2 = nn.Dense(self.d_model * self.seq.state_expansion)
+            self.out1 = nn.Dense(self.d_model_out)
+            self.out2 = nn.Dense(self.d_model_out)
         elif self.activation in ["half_glu1", "half_glu2"]:
-            self.out2 = nn.Dense(self.d_model * self.seq.state_expansion)
+            self.out2 = nn.Dense(self.d_model_out)
 
-        if self.stride > 1:
-            self.skip_connection = nn.Dense(self.d_model * self.seq.state_expansion)
+        if self.d_model_in != self.d_model_out:
+            self.skip_connection = nn.Dense(self.d_model_out)
 
         if self.batchnorm:
             self.norm = nn.BatchNorm(use_running_average=not self.training,
@@ -89,7 +97,7 @@ class SequenceLayer(nn.Module):
             deterministic=not self.training,
         )
 
-        self.pool = EventPooling(stride=self.stride, mode=self.pooling_mode)
+        self.pool = EventPooling(stride=self.pooling_stride, mode=self.pooling_mode)
 
     def __call__(self, x, integration_timesteps):
         """
@@ -124,8 +132,10 @@ class SequenceLayer(nn.Module):
             raise NotImplementedError(
                    "Activation: {} not implemented".format(self.activation))
 
-        if self.stride > 1:
+        if self.pooling_stride > 1:
             skip, integration_timesteps = self.pool(skip, integration_timesteps)
+
+        if self.d_model_in != self.d_model_out:
             skip = self.skip_connection(skip)
 
         x = skip + x

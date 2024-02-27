@@ -39,9 +39,10 @@ class StackedEncoderModel(nn.Module):
     batchnorm: bool = False
     bn_momentum: float = 0.9
     step_rescale: float = 1.0
-    stride: int = 1
-    pool_every_n_layers: int = 1
+    pooling_stride: int = 1
+    pooling_every_n_layers: int = 1
     pooling_mode: str = "last"
+    state_expansion_factor: int = 1
 
     def setup(self):
         """
@@ -56,31 +57,43 @@ class StackedEncoderModel(nn.Module):
             self.encoder = nn.Dense(self.d_model)
 
         # generate strides for the model
-        strides = [1] + [self.stride if l % self.pool_every_n_layers == 0 else 1 for l in range(self.n_layers - 2)] + [1]
+        layers = []
+        d_model = self.d_model
+        d_ssm = self.d_ssm
+        total_downsampling = 1
+        for l in range(self.n_layers):
+            # pool from the first layer but don't expand the state dim for the first layer
+            stride = self.pooling_stride if l % self.pooling_every_n_layers == 0 else 1
+            total_downsampling *= stride
+            d_model_in = d_model
+            d_model_out = d_model
 
-        # generate model input dimensions from strides, where the first layer always has model dimension
-        expansion_factors = [1 if s == 1 else 2 for s in strides[:-1]]
-        model_dims = [self.d_model] + (self.d_model * numpy.cumprod(expansion_factors)).astype(np.int32).tolist()
-        ssm_dims = [self.d_ssm] + (self.d_ssm * numpy.cumprod(expansion_factors)).astype(np.int32).tolist()
-        self.layers = [
-            SequenceLayer(
-                ssm=self.ssm,
-                discretization=self.discretization_first_layer if l == 0 else self.discretization,
-                dropout=self.dropout,
-                d_model=model_dims[l],
-                d_ssm=ssm_dims[l],
-                block_size=self.block_size,
-                activation=self.activation,
-                training=self.training,
-                prenorm=self.prenorm,
-                batchnorm=self.batchnorm,
-                bn_momentum=self.bn_momentum,
-                step_rescale=self.step_rescale,
-                stride=strides[l],
-                pooling_mode=self.pooling_mode
+            if l > 0 and l % self.pooling_every_n_layers == 0:
+                d_ssm = self.state_expansion_factor * d_ssm
+                d_model_out = self.state_expansion_factor * d_model
+                d_model = self.state_expansion_factor * d_model
+
+            layers.append(
+                SequenceLayer(
+                    ssm=self.ssm,
+                    discretization=self.discretization_first_layer if l == 0 else self.discretization,
+                    dropout=self.dropout,
+                    d_model_in=d_model_in,
+                    d_model_out=d_model_out,
+                    d_ssm=d_ssm,
+                    block_size=self.block_size,
+                    activation=self.activation,
+                    training=self.training,
+                    prenorm=self.prenorm,
+                    batchnorm=self.batchnorm,
+                    bn_momentum=self.bn_momentum,
+                    step_rescale=self.step_rescale,
+                    pooling_stride=stride,
+                    pooling_mode=self.pooling_mode
+                )
             )
-            for l in range(self.n_layers)
-        ]
+        self.layers = layers
+        self.total_downsampling = total_downsampling
 
     def __call__(self, x, integration_timesteps):
         """
@@ -128,7 +141,7 @@ def timepool(x, integration_timesteps):
     return integral / T
 
 
-def masked_timepool(x, lengths, integration_timesteps):
+def masked_timepool(x, lengths, integration_timesteps, eps=1e-6):
     """
     Helper function to perform weighted mean across the sequence length
     when sequences have variable lengths. We only want to pool across
@@ -144,7 +157,8 @@ def masked_timepool(x, lengths, integration_timesteps):
     T = np.sum(integration_timesteps)
 
     # integrate with time weighting
-    integral = np.sum(mask[..., None] * x * integration_timesteps[..., None], axis=0)
+    weight = integration_timesteps[..., None] + eps
+    integral = np.sum(mask[..., None] * x * weight, axis=0)
     return integral / T
 
 
@@ -194,9 +208,10 @@ class ClassificationModel(nn.Module):
     batchnorm: bool = False
     bn_momentum: float = 0.9
     step_rescale: float = 1.0
-    stride: int = 1
-    pool_every_n_layers: int = 1
+    pooling_stride: int = 1
+    pooling_every_n_layers: int = 1
     pooling_mode: str = "last"
+    state_expansion_factor: int = 1
 
     def setup(self):
         """
@@ -219,9 +234,10 @@ class ClassificationModel(nn.Module):
             batchnorm=self.batchnorm,
             bn_momentum=self.bn_momentum,
             step_rescale=self.step_rescale,
-            stride=self.stride,
-            pool_every_n_layers=self.pool_every_n_layers,
-            pooling_mode=self.pooling_mode
+            pooling_stride=self.pooling_stride,
+            pooling_every_n_layers=self.pooling_every_n_layers,
+            pooling_mode=self.pooling_mode,
+            state_expansion_factor=self.state_expansion_factor
         )
         self.decoder = nn.Dense(self.d_output)
 
@@ -236,6 +252,8 @@ class ClassificationModel(nn.Module):
         """
         if self.padded:
             x, length = x  # input consists of data and prepadded seq lens
+            # if the sequence is downsampled we need to adjust the length
+            length = length // self.encoder.total_downsampling
 
         x, integration_timesteps = self.encoder(x, integration_timesteps)
         if self.mode in ["pool"]:

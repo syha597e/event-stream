@@ -35,7 +35,7 @@ if __name__ == "__main__":
 							 "trunc_standard_normal: sample from trunc. std. normal then multiply by V \\ " \
 							 "lecun_normal sample from lecun normal, then multiply by V\\ " \
 							 "complex_normal: sample directly from complex standard normal")
-	parser.add_argument("--discretization", type=str, default="zoh", choices=["zoh", "bilinear", "dirac"])
+	parser.add_argument("--discretization", type=str, default="zoh", choices=["zoh", "bilinear", "dirac", "state_zoh"])
 	parser.add_argument("--first_layer_discretization", type=str, default="dirac", choices=["zoh", "bilinear", "dirac"],
 						help="discretization for first layer")
 	parser.add_argument("--mode", type=str, default="pool", choices=["pool", "last", "timepool"],
@@ -52,13 +52,15 @@ if __name__ == "__main__":
 						help="min value to sample initial timescale params from")
 	parser.add_argument("--dt_max", type=float, default=0.1,
 						help="max value to sample initial timescale params from")
-	parser.add_argument("--stride", type=int, default=1,
+	parser.add_argument("--pooling_stride", type=int, default=1,
 						help="stride for event pooling")
-	parser.add_argument("--pool_every_n_layers", type=int, default=99999,
+	parser.add_argument("--pooling_every_n_layers", type=int, default=99999,
 						help="Apply stride every n layers")
 	parser.add_argument("--pooling_mode", type=str, default="last",
-						choices=["last", "mean"],
+						choices=["last", "avgpool", "timepool"],
 						help="Select mode to pool events")
+	parser.add_argument("--state_expansion_factor", type=int, default=1,
+						help="Expands the state in pooling layers by this factor")
 
 	# Data options
 	parser.add_argument("--max_events_per_sample", type=int, default=None,

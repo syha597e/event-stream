@@ -135,9 +135,10 @@ def train(args):
             prenorm=args.prenorm,
             batchnorm=args.batchnorm,
             bn_momentum=args.bn_momentum,
-            stride=args.stride,
-            pool_every_n_layers=args.pool_every_n_layers,
+            pooling_stride=args.pooling_stride,
+            pooling_every_n_layers=args.pooling_every_n_layers,
             pooling_mode=args.pooling_mode,
+            state_expansion_factor=args.state_expansion_factor,
         )
 
     # initialize training state
