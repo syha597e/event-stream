@@ -106,8 +106,7 @@ def timepool(x, integration_timesteps):
         mean pooled output sequence (float32): (d_model)
     """
     T = np.sum(integration_timesteps, axis=0)
-    # using the Trapezoidal rule to integrate
-    integral = np.sum((x[1:] + x[:-1]) / 2 * integration_timesteps[..., None], axis=0)
+    integral = np.sum(x * integration_timesteps[..., None], axis=0)
     return integral / T
 
 
@@ -123,12 +122,8 @@ def masked_timepool(x, lengths, integration_timesteps):
         mean pooled output sequence (float32): (d_model)
     """
     L = x.shape[0]
-    mask = np.arange(L - 1) < lengths
-    T = np.sum(integration_timesteps[1:])
-
-    # align timesteps with inputs
-    integration_timesteps = integration_timesteps[1:]
-    x = x[:-1]
+    mask = np.arange(L) < lengths
+    T = np.sum(integration_timesteps)
 
     # integrate with time weighting
     integral = np.sum(mask[..., None] * x * integration_timesteps[..., None], axis=0)

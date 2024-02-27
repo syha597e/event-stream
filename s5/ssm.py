@@ -163,7 +163,6 @@ class S5SSM(nn.Module):
                                                           shape,
                                                           self.Vinv),
                             B_shape)
-        B_tilde = self.B[..., 0] + 1j * self.B[..., 1]
 
         # Initialize state to output (C) matrix
         if self.C_init in ["trunc_standard_normal"]:

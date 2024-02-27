@@ -132,7 +132,7 @@ def create_train_state(model_cls,
         else:
             dummy_input = np.ones((bsz, seq_len, in_dim), dtype=np.int32)
 
-        integration_timesteps = np.ones((bsz, seq_len - 1, ))
+        integration_timesteps = np.ones((bsz, seq_len, ))
 
     model = model_cls(training=True)
     init_rng, dropout_rng = jax.random.split(rng, num=2)
@@ -309,13 +309,13 @@ def prep_batch(batch: tuple,
 
     # Make all batches have same sequence length
     tokenized = (inputs.ndim < 3) and (inputs.shape[-1] != in_dim)
-    num_pad = seq_len - inputs.shape[1] - 1
-
-    if tokenized:
-        inputs = np.pad(inputs, ((0, 0), (1, 0 if num_pad < 0 else num_pad)), 'constant', constant_values=(-1,))
-    else:
-        # Assuming vocab padding value is zero
-        inputs = np.pad(inputs, ((0, 0), (1, 0 if num_pad < 0 else num_pad)), 'constant', constant_values=(0,))
+    num_pad = seq_len - inputs.shape[1]
+    if num_pad > 0:
+        if tokenized:
+            inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(-1,))
+        else:
+            # Assuming vocab padding value is zero
+            inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(0,))
 
     # Inputs is either [n_batch, seq_len] or [n_batch, seq_len, in_dim].
     # If there are not three dimensions and trailing dimension is not equal to in_dim then
@@ -326,6 +326,10 @@ def prep_batch(batch: tuple,
     # If there are lengths, bundle them up.
     if lengths is not None:
         lengths = np.asarray(lengths.numpy())
+
+        # subtract 1 as the sequence lengths is reduced by one through taking differences of time stamps
+        lengths = np.clip(lengths - 1, a_min=0, a_max=seq_len)
+
         if tokenized:
             full_inputs = (inputs.astype(np.int32), lengths.astype(np.int32))
         else:
@@ -338,11 +342,14 @@ def prep_batch(batch: tuple,
 
     # If there is an aux channel containing the integration times, then add that.
     if 'timesteps' in aux_data.keys():
+        # integration time steps are the difference between two consequtive time stamps
         timesteps = np.asarray(aux_data['timesteps'].numpy())
         integration_timesteps = np.diff(timesteps)
-        integration_timesteps = jax.jit(jax.vmap(
-            lambda t: np.pad(t, pad_width=(1, 0 if num_pad < -1 else num_pad + 1), mode='constant', constant_values=0),
-        ))(integration_timesteps)
+
+        num_pad = seq_len - integration_timesteps.shape[1]
+        if num_pad > 0:
+            integration_timesteps = np.pad(integration_timesteps, pad_width=((0, 0), (0, num_pad)), mode='constant', constant_values=0)
+
     else:
         integration_timesteps = np.ones((len(inputs), seq_len))
 
