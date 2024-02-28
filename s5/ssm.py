@@ -163,7 +163,6 @@ class S5SSM(nn.Module):
                                                           shape,
                                                           self.Vinv),
                             B_shape)
-        B_tilde = self.B[..., 0] + 1j * self.B[..., 1]
 
         # Initialize state to output (C) matrix
         if self.C_init in ["trunc_standard_normal"]:
@@ -226,8 +225,7 @@ class S5SSM(nn.Module):
             Bu = gamma_bar * (B @ u)
             return Lambda_bar, Bu
 
-        timesteps = np.expand_dims(np.concatenate((np.asarray((1,)), integration_timesteps)), -1)
-        Lambda_bar_elements, Bu_bar_elements = jax.vmap(discretize_and_project_inputs)(input_sequence, timesteps)
+        Lambda_bar_elements, Bu_bar_elements = jax.vmap(discretize_and_project_inputs)(input_sequence, integration_timesteps)
 
         ys = apply_ssm(
             Lambda_bar_elements,
