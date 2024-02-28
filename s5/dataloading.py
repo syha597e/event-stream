@@ -1,11 +1,12 @@
 import torch
 from pathlib import Path
-import os
 from typing import Callable, Optional, TypeVar, Dict, Tuple, List, Union
 import tonic
 from functools import partial
 from torch.nn.functional import pad
 import numpy as np
+import jax
+import jax.numpy as jnp
 from s5.transform import CropEvents, Identity
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
@@ -117,7 +118,13 @@ def event_stream_collate_fn(batch, resolution, max_time=None):
 	tokens = torch.stack([pad(e, (0, max_length - l), 'constant', -1) for e, l in zip(tokens, lengths)])
 
 	y = torch.tensor(y).int()
-	return tokens, y, {'timesteps': timesteps, 'lengths': lengths}
+
+	tokens = tokens.numpy()
+	y = y.numpy()
+	timesteps = timesteps.numpy()
+	lengths = lengths.numpy()
+
+	return tokens, y, timesteps, lengths
 
 
 def event_stream_dataloader(train_data, val_data, test_data, bsz, collate_fn, rng, shuffle_training=True):
@@ -309,7 +316,7 @@ def create_events_dvs_gesture_classification_dataset(
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
 		collate_fn=partial(event_stream_collate_fn, resolution=new_sensor_size[:2]),
-		bsz=bsz, rng=rng, shuffle_training=False
+		bsz=bsz, rng=rng, shuffle_training=True
 	)
 
 	return Data(
