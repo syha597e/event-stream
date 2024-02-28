@@ -83,10 +83,6 @@ def map_nested_fn(fn):
 
 def create_train_state(model_cls,
                        rng,
-                       padded,
-                       retrieval,
-                       tokenized=False,
-                       in_dim=1,
                        bsz=128,
                        seq_len=784,
                        weight_decay=0.01,
@@ -101,9 +97,6 @@ def create_train_state(model_cls,
 
     :param model_cls:
     :param rng:
-    :param padded:
-    :param retrieval:
-    :param in_dim:
     :param bsz:
     :param seq_len:
     :param weight_decay:
@@ -115,24 +108,11 @@ def create_train_state(model_cls,
     :return:
     """
 
-    if padded:
-            # For retrieval tasks we have two different sets of "documents"
-            if tokenized:
-                inputs = np.ones((2 * bsz if retrieval else bsz, seq_len), dtype=np.int32)
-                lengths = np.ones(2 * bsz if retrieval else bsz, dtype=np.int32)
-            else:
-                inputs = np.ones((2 * bsz if retrieval else bsz, seq_len, in_dim))
-                lengths = np.ones(2 * bsz if retrieval else bsz)
+    inputs = np.ones((bsz, seq_len), dtype=np.int32)
+    lengths = np.ones(bsz, dtype=np.int32)
 
-            dummy_input = (inputs, lengths)
-            integration_timesteps = np.ones((2*bsz if retrieval else bsz, seq_len,))
-    else:
-        if tokenized:
-            dummy_input = np.ones((bsz, seq_len), dtype=np.int32)
-        else:
-            dummy_input = np.ones((bsz, seq_len, in_dim), dtype=np.int32)
-
-        integration_timesteps = np.ones((bsz, seq_len, ))
+    dummy_input = (inputs, lengths)
+    integration_timesteps = np.ones((bsz, seq_len,))
 
     model = model_cls(training=True)
     init_rng, dropout_rng = jax.random.split(rng, num=2)
@@ -283,24 +263,15 @@ def compute_accuracy(logits, label):
     return np.argmax(logits) == label
 
 
-def prep_batch(batch: tuple,
-               seq_len: int,
-               in_dim: int) -> Tuple[np.ndarray, np.ndarray, np.array]:
+def prep_batch(batch: tuple, seq_len: int) -> Tuple[Tuple[np.ndarray, np.ndarray], np.ndarray, np.array]:
     """
     Take a batch and convert it to a standard x/y format.
     :param batch:       (x, y, aux_data) as returned from dataloader.
     :param seq_len:     (int) length of sequence.
-    :param in_dim:      (int) dimension of input.
     :return:
     """
-    if len(batch) == 2:
-        inputs, targets = batch
-        aux_data = {}
-    elif len(batch) == 3:
-        inputs, targets, aux_data = batch
-    else:
-        raise RuntimeError("Err... not sure what I should do... Unhandled data type. ")
-
+    inputs, targets, aux_data = batch
+    
     # Convert to JAX.
     inputs = np.asarray(inputs.numpy())
 
@@ -308,55 +279,33 @@ def prep_batch(batch: tuple,
     lengths = aux_data.get('lengths', None)
 
     # Make all batches have same sequence length
-    tokenized = (inputs.ndim < 3) and (inputs.shape[-1] != in_dim)
     num_pad = seq_len - inputs.shape[1]
     if num_pad > 0:
-        if tokenized:
-            inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(-1,))
-        else:
-            # Assuming vocab padding value is zero
-            inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(0,))
+        inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(-1,))
 
-    # Inputs is either [n_batch, seq_len] or [n_batch, seq_len, in_dim].
-    # If there are not three dimensions and trailing dimension is not equal to in_dim then
-    # transform into one-hot.  This should be a fairly reliable fix.
-    #if tokenized:
-    #    inputs = one_hot(np.asarray(inputs), in_dim)
+    lengths = np.asarray(lengths.numpy())
 
-    # If there are lengths, bundle them up.
-    if lengths is not None:
-        lengths = np.asarray(lengths.numpy())
+    # subtract 1 as the sequence lengths is reduced by one through taking differences of time stamps
+    lengths = np.clip(lengths - 1, a_min=0, a_max=seq_len)
 
-        # subtract 1 as the sequence lengths is reduced by one through taking differences of time stamps
-        lengths = np.clip(lengths - 1, a_min=0, a_max=seq_len)
-
-        if tokenized:
-            full_inputs = (inputs.astype(np.int32), lengths.astype(np.int32))
-        else:
-            full_inputs = (inputs.astype(float), lengths.astype(float))
-    else:
-        full_inputs = inputs.astype(float)
+    full_inputs = (inputs.astype(np.int32), lengths.astype(np.int32))
 
     # Convert and apply.
     targets = np.array(targets.numpy())
 
-    # If there is an aux channel containing the integration times, then add that.
-    if 'timesteps' in aux_data.keys():
-        # integration time steps are the difference between two consequtive time stamps
-        timesteps = np.asarray(aux_data['timesteps'].numpy())
-        integration_timesteps = np.diff(timesteps)
+    # integration time steps are the difference between two consequtive time stamps
+    assert 'timesteps' in aux_data.keys()
+    timesteps = np.asarray(aux_data['timesteps'].numpy())
+    integration_timesteps = np.diff(timesteps)
 
-        num_pad = seq_len - integration_timesteps.shape[1]
-        if num_pad > 0:
-            integration_timesteps = np.pad(integration_timesteps, pad_width=((0, 0), (0, num_pad)), mode='constant', constant_values=0)
-
-    else:
-        integration_timesteps = np.ones((len(inputs), seq_len))
+    num_pad = seq_len - integration_timesteps.shape[1]
+    if num_pad > 0:
+        integration_timesteps = np.pad(integration_timesteps, pad_width=((0, 0), (0, num_pad)), mode='constant', constant_values=0)
 
     return full_inputs, targets.astype(float), integration_timesteps
 
 
-def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_params):
+def train_epoch(state, rng, model, trainloader, seq_len, batchnorm, lr_params):
     """
     Training function for an epoch that loops over batches.
     """
@@ -367,7 +316,7 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
     decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min = lr_params
 
     for batch_idx, batch in enumerate(tqdm(trainloader)):
-        inputs, labels, integration_times = prep_batch(batch, seq_len, in_dim)
+        inputs, labels, integration_times = prep_batch(batch, seq_len)
         rng, drop_rng = jax.random.split(rng)
         state, loss = train_step(
             state,
@@ -386,12 +335,12 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
     return state, np.mean(np.array(batch_losses)), step
 
 
-def validate(state, model, testloader, seq_len, in_dim, batchnorm, step_rescale=1.0):
+def validate(state, model, testloader, seq_len, batchnorm, step_rescale=1.0):
     """Validation function that loops over batches"""
     model = model(training=False, step_rescale=step_rescale)
     losses, accuracies, preds = np.array([]), np.array([]), np.array([])
     for batch_idx, batch in enumerate(tqdm(testloader)):
-        inputs, labels, integration_timesteps = prep_batch(batch, seq_len, in_dim)
+        inputs, labels, integration_timesteps = prep_batch(batch, seq_len)
         loss, acc, pred = eval_step(inputs, labels, integration_timesteps, state, model, batchnorm)
         losses = np.append(losses, loss)
         accuracies = np.append(accuracies, acc)

@@ -7,7 +7,7 @@ import wandb
 from .train_helpers import create_train_state, reduce_lr_on_plateau,\
     linear_warmup, cosine_annealing, constant_lr, train_epoch, validate
 from .dataloading import Datasets
-from .seq_model import BatchClassificationModel, RetrievalModel
+from .seq_model import BatchClassificationModel
 from .ssm import init_S5SSM
 from .ssm_init import make_DPLR_HiPPO
 
@@ -44,42 +44,12 @@ def train(args):
     # Get dataset creation function
     create_dataset_fn = Datasets[args.dataset]
 
-    # Dataset dependent logic
-    if args.dataset in [
-        "imdb-classification",
-        "listops-classification",
-        "aan-classification",
-        "shd-classification",
-        "ssc-classification",
-        "dvs-gesture-classification",
-    ]:
-        padded = True
-        tokenized = True
-        if args.dataset in ["aan-classification"]:
-            # Use retreival model for document matching
-            retrieval = True
-            print("Using retrieval model for document matching")
-        else:
-            retrieval = False
-
-    else:
-        padded = False
-        tokenized = False
-        retrieval = False
-
     if args.dataset in ["shd-classification", "ssc-classification"]:
         num_embeddings = 700
     elif args.dataset in ["dvs-gesture-classification"]:
         num_embeddings = (128 // args.downsampling) * (128 // args.downsampling) * 2
     else:
-        num_embeddings = 0
-
-    # For speech dataset
-    if args.dataset in ["speech35-classification"]:
-        speech = True
-        print("Will evaluate on both resolutions for speech task")
-    else:
-        speech = False
+        raise NotImplementedError(f"Dataset {args.dataset} not implemented")
 
     # Create dataset...
     init_rng, key = random.split(init_rng, num=2)
@@ -131,50 +101,26 @@ def train(args):
                              conj_sym=args.conj_sym,
                              clip_eigs=args.clip_eigs)
 
-    if retrieval:
-        # Use retrieval head for AAN task
-        print("Using Retrieval head for {} task".format(args.dataset))
-        model_cls = partial(
-            RetrievalModel,
-            ssm=ssm_init_fn,
-            d_output=data.n_classes,
-            d_model=args.d_model,
-            n_layers=args.n_layers,
-            padded=padded,
-            activation=args.activation_fn,
-            dropout=args.p_dropout,
-            prenorm=args.prenorm,
-            batchnorm=args.batchnorm,
-            bn_momentum=args.bn_momentum,
-        )
-
-    else:
-        model_cls = partial(
-            BatchClassificationModel,
-            ssm=ssm_init_fn,
-            discretization=args.discretization,
-            discretization_first_layer=args.first_layer_discretization,
-            d_output=data.n_classes,
-            d_model=args.d_model,
-            n_layers=args.n_layers,
-            tokenized=tokenized,
-            num_embeddings=num_embeddings,
-            padded=padded,
-            activation=args.activation_fn,
-            dropout=args.p_dropout,
-            mode=args.mode,
-            prenorm=args.prenorm,
-            batchnorm=args.batchnorm,
-            bn_momentum=args.bn_momentum,
-        )
+    model_cls = partial(
+        BatchClassificationModel,
+        ssm=ssm_init_fn,
+        discretization=args.discretization,
+        discretization_first_layer=args.first_layer_discretization,
+        d_output=data.n_classes,
+        d_model=args.d_model,
+        n_layers=args.n_layers,
+        num_embeddings=num_embeddings,
+        activation=args.activation_fn,
+        dropout=args.p_dropout,
+        mode=args.mode,
+        prenorm=args.prenorm,
+        batchnorm=args.batchnorm,
+        bn_momentum=args.bn_momentum,
+    )
 
     # initialize training state
     state = create_train_state(model_cls,
                                init_rng,
-                               padded,
-                               retrieval,
-                               tokenized=tokenized,
-                               in_dim=data.in_dim,
                                bsz=args.bsz,
                                seq_len=data.train_pad_length,
                                weight_decay=args.weight_decay,
@@ -222,7 +168,6 @@ def train(args):
                                               model_cls,
                                               data.train_loader,
                                               data.train_pad_length,
-                                              data.in_dim,
                                               args.batchnorm,
                                               lr_params)
 
@@ -232,7 +177,6 @@ def train(args):
                                          model_cls,
                                          data.val_loader,
                                          data.test_pad_length,
-                                         data.in_dim,
                                          args.batchnorm)
 
             print(f"[*] Running Epoch {epoch + 1} Test...")
@@ -240,7 +184,6 @@ def train(args):
                                            model_cls,
                                            data.test_loader,
                                            data.test_pad_length,
-                                           data.in_dim,
                                            args.batchnorm)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
@@ -257,7 +200,6 @@ def train(args):
                                          model_cls,
                                          data.test_loader,
                                          data.test_pad_length,
-                                         data.in_dim,
                                          args.batchnorm)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
@@ -282,27 +224,6 @@ def train(args):
             else:
                 best_test_loss, best_test_acc = best_loss, best_acc
 
-            # Do some validation on improvement.
-            if speech:
-                # Evaluate on resolution 2 val and test sets
-                print(f"[*] Running Epoch {epoch + 1} Res 2 Validation...")
-                val2_loss, val2_acc = validate(state,
-                                               model_cls,
-                                               data.aux_loaders['valloader2'],
-                                               int(data.test_pad_length // 2),
-                                               data.in_dim,
-                                               args.batchnorm,
-                                               step_rescale=2.0)
-
-                print(f"[*] Running Epoch {epoch + 1} Res 2 Test...")
-                test2_loss, test2_acc = validate(state, model_cls, data.aux_loaders['testloader2'], int(data.test_pad_length // 2), data.in_dim, args.batchnorm, step_rescale=2.0)
-                print(f"\n=>> Epoch {epoch + 1} Res 2 Metrics ===")
-                print(
-                    f"\tVal2 Loss: {val2_loss:.5f} --Test2 Loss: {test2_loss:.5f} --"
-                    f" Val Accuracy: {val2_acc:.4f}"
-                    f" Test Accuracy: {test2_acc:.4f}"
-                )
-
         # For learning rate decay purposes:
         input = lr, ssm_lr, lr_count, val_acc, opt_acc
         lr, ssm_lr, lr_count, opt_acc = reduce_lr_on_plateau(input, factor=args.reduce_factor, patience=args.lr_patience, lr_min=args.lr_min)
@@ -316,40 +237,20 @@ def train(args):
         )
 
         if data.val_loader is not None:
-            if speech:
-                wandb.log(
-                    {
-                        "Training Loss": train_loss,
-                        "Val loss": val_loss,
-                        "Val Accuracy": val_acc,
-                        "Test Loss": test_loss,
-                        "Test Accuracy": test_acc,
-                        "Val2 loss": val2_loss,
-                        "Val2 Accuracy": val2_acc,
-                        "Test2 Loss": test2_loss,
-                        "Test2 Accuracy": test2_acc,
-                        "count": count,
-                        "Learning rate count": lr_count,
-                        "Opt acc": opt_acc,
-                        "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-                        "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
-                    }
-                )
-            else:
-                wandb.log(
-                    {
-                        "Training Loss": train_loss,
-                        "Val loss": val_loss,
-                        "Val Accuracy": val_acc,
-                        "Test Loss": test_loss,
-                        "Test Accuracy": test_acc,
-                        "count": count,
-                        "Learning rate count": lr_count,
-                        "Opt acc": opt_acc,
-                        "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-                        "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
-                    }
-                )
+            wandb.log(
+                {
+                    "Training Loss": train_loss,
+                    "Val loss": val_loss,
+                    "Val Accuracy": val_acc,
+                    "Test Loss": test_loss,
+                    "Test Accuracy": test_acc,
+                    "count": count,
+                    "Learning rate count": lr_count,
+                    "Opt acc": opt_acc,
+                    "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
+                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
+                }
+            )
 
         else:
             wandb.log(
