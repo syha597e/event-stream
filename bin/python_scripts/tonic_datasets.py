@@ -1,7 +1,7 @@
 import tonic
 import argparse
 import numpy as np
-
+from tqdm import tqdm
 
 def get_dataset(name, cache_dir):
     if name == 'shd':
@@ -17,6 +17,24 @@ def get_dataset(name, cache_dir):
         dvs_train = tonic.datasets.DVSGesture(save_to=cache_dir, train=True)
         dvs_test = tonic.datasets.DVSGesture(save_to=cache_dir, train=False)
         return dvs_train, None, dvs_test
+    elif name == 'dvs_gesture-32':
+        transform = tonic.transforms.Compose([
+            tonic.transforms.Downsample(spatial_factor=4),
+            tonic.transforms.RefractoryPeriod(delta=10000)
+        ])
+        dvs_train = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=transform)
+        dvs_test = tonic.datasets.DVSGesture(save_to=cache_dir, train=False, transform=transform)
+        return dvs_train, None, dvs_test
+    elif name == 'cifar':
+        dvs_train = tonic.datasets.CIFAR10DVS(save_to=cache_dir)
+        return dvs_train, None, None
+    elif name == 'caltech':
+        dvs = tonic.datasets.NCALTECH101(save_to=cache_dir)
+        return dvs, None, None
+    elif name == 'nmnist':
+        dvs_train = tonic.datasets.NMNIST(save_to=cache_dir, train=True)
+        dvs_test = tonic.datasets.NMNIST(save_to=cache_dir, train=False)
+        return dvs_train, None, dvs_test
     elif name == 'dvs_lip':
         dvs_train = tonic.datasets.DVSLip(save_to=cache_dir, train=True)
         dvs_test = tonic.datasets.DVSLip(save_to=cache_dir, train=False)
@@ -25,10 +43,11 @@ def get_dataset(name, cache_dir):
 
 def get_dset_stats(dataset):
     num_samples = len(dataset)
-    num_classes = len(dataset.classes)
+    #num_classes = len(dataset.classes)
+    num_classes = None
 
     seq_len = np.zeros(num_samples, dtype=int)
-    for i, sample in enumerate(dataset):
+    for i, sample in tqdm(enumerate(dataset)):
         data, label = sample
         seq_len[i] = len(data['t'])
 
@@ -41,7 +60,7 @@ def main():
                             help="name of directory where data is cached")
     args = argparser.parse_args()
 
-    for dataset in ['shd', 'ssc', 'dvs_gesture']:
+    for dataset in ['caltech']:
         data = get_dataset(dataset, args.directory)
         for dset in data:
             if dset is not None:

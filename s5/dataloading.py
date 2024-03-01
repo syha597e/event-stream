@@ -3,10 +3,7 @@ from pathlib import Path
 from typing import Callable, Optional, TypeVar, Dict, Tuple, List, Union
 import tonic
 from functools import partial
-from torch.nn.functional import pad
 import numpy as np
-import jax
-import jax.numpy as jnp
 from s5.transform import CropEvents, Identity
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
@@ -23,8 +20,7 @@ class Data:
 			test_loader: DataLoader,
 			aux_loaders: Dict,
 			n_classes: int,
-			train_pad_length: int,
-			test_pad_length: int,
+			prototypical_sequence_length: int,
 			in_dim: int,
 			train_size: int
 ):
@@ -33,8 +29,7 @@ class Data:
 		self.test_loader = test_loader
 		self.aux_loaders = aux_loaders
 		self.n_classes = n_classes
-		self.train_pad_length = train_pad_length
-		self.test_pad_length = test_pad_length
+		self.prototypical_sequence_length = prototypical_sequence_length
 		self.in_dim = in_dim
 		self.train_size = train_size
 
@@ -84,45 +79,50 @@ def make_data_loader(dset,
 									   drop_last=drop_last, generator=rng)
 
 
-def event_stream_collate_fn(batch, resolution, max_time=None):
+def event_stream_collate_fn(batch, resolution, pad_unit, patch_ids=None):
 	# x are inputs, y are targets, z are aux data
 	x, y, *z = zip(*batch)
 	assert len(z) == 0
 
 	# set tonic specific items
-	timesteps = [torch.tensor(e['t'].copy()) for e in x]
+	timesteps = [np.diff(e['t']) for e in x]
+
+	# NOTE: since timesteps are deltas, their length is L - 1, and we have to remove the last token in the following
 
 	# process tokens for single input dim (e.g. audio)
 	if len(resolution) == 1:
-		tokens = [torch.tensor(e['x']).int() for e in x]
+		tokens = [e['x'][:-1].astype(np.int32) for e in x]
 	elif len(resolution) == 2:
-		tokens = [torch.tensor(e['x'] * e['y'] + np.prod(resolution) * e['p'].astype(np.int32)).int() for e in x]
+		tokens = [(e['x'][:-1] * e['y'][:-1] + np.prod(resolution) * e['p'][:-1].astype(np.int32)).astype(np.int32) for e in x]
+
+		if patch_ids is not None:
+			# collect tokens and timesteps for each patch
+			patch_tokens = [[tok[patch_ids[tok % np.prod(resolution)] == p] for p in np.unique(patch_ids)] for tok in tokens]
+			patch_timesteps = [[timestep[patch_ids[tok % np.prod(resolution)] == p] for p in np.unique(patch_ids)] for tok, timestep in zip(tokens, timesteps)]
+			max_len = np.max(np.array([[len(p) for p in tok] for tok in patch_tokens]))
+
+			# pad tokens and timesteps
+			tokens = [np.stack([np.pad(p, (0, max_len - len(p)), mode='constant', constant_values=-1) for p in tok]) for tok in patch_tokens]
+			timesteps = [np.stack([np.pad(p, (0, max_len - len(p)), mode='constant', constant_values=0) for p in timestep]) for timestep in patch_timesteps]
 	else:
 		raise ValueError('resolution must contain 1 or 2 elements')
 
-	# drop of events later than max_time
-	if max_time is not None:
-		mask = [e <= max_time for e in timesteps]
-		timesteps = [e[m] for e, m in zip(timesteps, mask)]
-		tokens = [e[m] for e, m in zip(tokens, mask)]
+	lengths = np.array([e.shape[-1] for e in timesteps], dtype=np.int32)
+	max_length = (lengths.max() // pad_unit) * pad_unit + pad_unit
 
-	# pad time steps with final time-step -> this is a bit of a hack to make the integration time steps 0
-	lengths = torch.tensor([len(e) for e in timesteps], dtype=torch.long)
-	max_length = lengths.max().item()
-	timesteps = torch.stack([pad(e, (0, max_length - l), 'constant', e[-1]) for e, l in zip(timesteps, lengths)])
+	if patch_ids is None:
+		# pad tokens with -1, which results in a zero vector with embedding look-ups
+		tokens = np.stack([np.pad(e, (0, max_length - len(e)), mode='constant', constant_values=-1) for e in tokens])
+		timesteps = np.stack([np.pad(e, (0, max_length - len(e)), mode='constant', constant_values=0) for e in timesteps])
+	else:
+		# pad tokens with -1, which results in a zero vector with embedding look-ups
+		tokens = np.stack([np.pad(e, ((0, 0), (0, max_length - len(e))), mode='constant', constant_values=-1) for e in tokens])
+		timesteps = np.stack([np.pad(e, ((0, 0), (0, max_length - len(e))), mode='constant', constant_values=0) for e in timesteps])
 
 	# timesteps are in micro seconds... transform to milliseconds
 	timesteps = timesteps / 1000
 
-	# pad tokens with -1, which results in a zero vector with jax.nn.one_hot
-	tokens = torch.stack([pad(e, (0, max_length - l), 'constant', -1) for e, l in zip(tokens, lengths)])
-
-	y = torch.tensor(y).int()
-
-	tokens = tokens.numpy()
-	y = y.numpy()
-	timesteps = timesteps.numpy()
-	lengths = lengths.numpy()
+	y = np.array(y)
 
 	return tokens, y, timesteps, lengths
 
@@ -191,16 +191,20 @@ def create_events_shd_classification_dataset(
 		)
 	test_data = tonic.datasets.SHD(save_to=cache_dir, train=False)
 
+	# choose a minimal padding unit of 8192, which covers half the sequences.
+	# The rest will be padded to multiples of this value
+	pad_unit = 8192
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=(700,)),
+		collate_fn=partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit),
 		bsz=bsz, rng=rng, shuffle_training=True
 	)
 
 	return Data(
 		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=20, in_dim=700, train_pad_length=16384, test_pad_length=16384, train_size=len(train_data)
+		n_classes=20, in_dim=700, prototypical_sequence_length=pad_unit, train_size=len(train_data)
 	)
+
 
 def create_events_ssc_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
@@ -238,16 +242,34 @@ def create_events_ssc_classification_dataset(
 	val_data = tonic.datasets.SSC(save_to=cache_dir, split='valid')
 	test_data = tonic.datasets.SSC(save_to=cache_dir, split='test')
 
+	# choose a minimal padding unit of 8192, which covers half the sequences.
+	# The rest will be padded to multiples of this value
+	pad_unit = 8192
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=(700,)),
+		collate_fn=partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit),
 		bsz=bsz, rng=rng, shuffle_training=True
 	)
 
 	return Data(
 		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=35, in_dim=700, train_pad_length=20480, test_pad_length=20480, train_size=len(train_data)
+		n_classes=35, in_dim=700, prototypical_sequence_length=pad_unit, train_size=len(train_data)
 	)
+
+
+def get_patch_ids(sensor_size, stages):
+	# look up table for patched SSM
+	num_patches = (2 ** stages) ** 2
+	ids_per_patch = sensor_size[0] * sensor_size[1] // num_patches
+	N = sensor_size[0] // (2 ** stages)
+	base = np.arange(N * N).reshape(N, N)
+	for _ in range(2):
+		kernel = np.arange(4).repeat(N * N).reshape(4, N, N)
+		kernel = N * N * kernel + base[None, ...]
+		kernel = kernel.reshape(2, 2, N, N)
+		base = np.transpose(kernel, (0, 2, 1, 3)).reshape(2 * N, 2 * N)
+		N = 2 * N
+	return base.flatten() // ids_per_patch
 
 
 def create_events_dvs_gesture_classification_dataset(
@@ -256,11 +278,11 @@ def create_events_dvs_gesture_classification_dataset(
 		seed: int = 42,
 		crop_events: int = None,
 		time_jitter: float = 100,
-		refractory_period: int = 0,
 		noise: int = 100,
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
 		downsampling: int = 1,
+		stages: int = 0,
 		**kwargs
 ) -> Data:
 	"""
@@ -272,9 +294,7 @@ def create_events_dvs_gesture_classification_dataset(
 	"""
 	print("[*] Generating DVS Gesture Classification Dataset")
 
-	assert isinstance(crop_events, int), "default_num_events must be an integer"
-	assert crop_events > 0, "default_num_events must be a positive integer"
-	assert time_skew > 1, "time_skew must be greater than 1"
+	assert time_skew >= 1, "time_skew must be greater than 1"
 
 	if seed is not None:
 		rng = torch.Generator()
@@ -286,9 +306,7 @@ def create_events_dvs_gesture_classification_dataset(
 	new_sensor_size = (128 // downsampling, 128 // downsampling, 2)
 	train_transforms = [
 		tonic.transforms.DropEvent(p=drop_event),
-		tonic.transforms.TimeSkew(coefficient=(1 / time_skew, time_skew), offset=0),
 		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
-		tonic.transforms.RefractoryPeriod(delta=refractory_period) if refractory_period > 0 else Identity(),
 		tonic.transforms.SpatialJitter(sensor_size=orig_sensor_size, var_x=1, var_y=1, clip_outliers=True),
 		tonic.transforms.Downsample(spatial_factor=downsampling) if downsampling > 1 else Identity(),
 		tonic.transforms.DropEventByArea(sensor_size=new_sensor_size, area_ratio=(0.05, 0.2)),
@@ -296,6 +314,8 @@ def create_events_dvs_gesture_classification_dataset(
 	]
 	if crop_events is not None:
 		train_transforms.append(CropEvents(crop_events))
+	if time_skew > 0:
+		train_transforms.append(tonic.transforms.TimeSkew(coefficient=(1 / time_skew, time_skew), offset=0))
 
 	train_transforms = tonic.transforms.Compose(train_transforms)
 
@@ -309,20 +329,29 @@ def create_events_dvs_gesture_classification_dataset(
 
 	test_transforms = tonic.transforms.Compose([
 		tonic.transforms.Downsample(spatial_factor=downsampling) if downsampling > 1 else Identity(),
-		tonic.transforms.RefractoryPeriod(delta=refractory_period) if refractory_period > 0 else Identity()
 	])
 	test_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=False, transform=test_transforms)
 
+	if stages > 0:
+		patch_ids = get_patch_ids(sensor_size=new_sensor_size, stages=stages)
+	else:
+		patch_ids = None
+
+	# TODO: 1. num workers > 0 2. pass num patches as argument 3. align num patches and num levels
+	# choose a minimal padding unit of 8192, which covers half the sequences.
+	# The rest will be padded to multiples of this value
+	pad_unit = 2 ** 19 if stages == 0 else 2 ** 16
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=new_sensor_size[:2]),
+		collate_fn=partial(event_stream_collate_fn, resolution=new_sensor_size[:2], pad_unit=pad_unit, patch_ids=patch_ids),
 		bsz=bsz, rng=rng, shuffle_training=True
 	)
 
 	return Data(
 		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=11, in_dim=128 * 128 * 2, train_pad_length=crop_events, test_pad_length=1595392, train_size=len(train_data)
+		n_classes=11, in_dim=128 * 128 * 2, prototypical_sequence_length=pad_unit if crop_events is None else crop_events, train_size=len(train_data)
 	)
+
 
 Datasets = {
 	"shd-classification": create_events_shd_classification_dataset,

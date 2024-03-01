@@ -261,42 +261,26 @@ def compute_accuracy(logits, label):
     return np.argmax(logits) == label
 
 
-def prep_batch(batch: tuple, seq_len: int) -> Tuple[Tuple[np.ndarray, np.ndarray], np.ndarray, np.array]:
+def prep_batch(batch: tuple) -> Tuple[Tuple[np.ndarray, np.ndarray], np.ndarray, np.array]:
     """
     Take a batch and convert it to a standard x/y format.
     :param batch:       (x, y, aux_data) as returned from dataloader.
-    :param seq_len:     (int) length of sequence.
     :return:
     """
-    inputs, targets, timesteps, lengths = batch
+    inputs, targets, integration_timesteps, lengths = batch
 
     # convert numpy arrays to jax arrays
     inputs = np.asarray(inputs)
     targets = np.asarray(targets)
-    timesteps = np.asarray(timesteps)
+    integration_timesteps = np.asarray(integration_timesteps)
     lengths = np.asarray(lengths)
 
-    # Make all batches have same sequence length
-    num_pad = seq_len - inputs.shape[1]
-    if num_pad > 0:
-        inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(-1,))
-
-    # subtract 1 as the sequence lengths is reduced by one through taking differences of time stamps
-    lengths = np.clip(lengths - 1, a_min=0, a_max=seq_len)
-
     full_inputs = (inputs.astype(np.int32), lengths.astype(np.int32))
-
-    # integration time steps are the difference between two consequtive time stamps
-    integration_timesteps = np.diff(timesteps)
-
-    num_pad = seq_len - integration_timesteps.shape[1]
-    if num_pad > 0:
-        integration_timesteps = np.pad(integration_timesteps, pad_width=((0, 0), (0, num_pad)), mode='constant', constant_values=0)
 
     return full_inputs, targets.astype(float), integration_timesteps
 
 
-def train_epoch(state, rng, model, trainloader, seq_len, batchnorm, lr_params):
+def train_epoch(state, rng, model, trainloader, batchnorm, lr_params):
     """
     Training function for an epoch that loops over batches.
     """
@@ -307,7 +291,7 @@ def train_epoch(state, rng, model, trainloader, seq_len, batchnorm, lr_params):
     decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min = lr_params
 
     for batch_idx, batch in enumerate(tqdm(trainloader)):
-        inputs, labels, integration_times = prep_batch(batch, seq_len)
+        inputs, labels, integration_times = prep_batch(batch)
         rng, drop_rng = jax.random.split(rng)
         state, loss = train_step(
             state,
@@ -326,12 +310,12 @@ def train_epoch(state, rng, model, trainloader, seq_len, batchnorm, lr_params):
     return state, np.mean(np.array(batch_losses)), step
 
 
-def validate(state, model, testloader, seq_len, batchnorm, step_rescale=1.0):
+def validate(state, model, testloader, batchnorm, step_rescale=1.0):
     """Validation function that loops over batches"""
     model = model(training=False, step_rescale=step_rescale)
     losses, accuracies, preds = np.array([]), np.array([]), np.array([])
     for batch_idx, batch in enumerate(tqdm(testloader)):
-        inputs, labels, integration_timesteps = prep_batch(batch, seq_len)
+        inputs, labels, integration_timesteps = prep_batch(batch)
         loss, acc, pred = eval_step(inputs, labels, integration_timesteps, state, model, batchnorm)
         losses = np.append(losses, loss)
         accuracies = np.append(accuracies, acc)

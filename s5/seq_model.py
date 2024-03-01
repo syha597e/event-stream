@@ -68,6 +68,7 @@ class StackedEncoderModel(nn.Module):
         Returns:
             output sequence (float32): (L, d_model)
         """
+        print(f"Building model for input shape {x.shape}")
         x = self.encoder(x)
         for layer in self.layers:
             x = layer(x, integration_timesteps)

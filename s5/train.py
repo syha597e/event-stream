@@ -57,7 +57,6 @@ def train(args):
         args.dir_name, seed=args.jax_seed, bsz=args.bsz,
         crop_events=args.max_events_per_sample,
         time_jitter=args.time_jitter,
-        refractory_period=args.refractory_period,
         noise=args.noise,
         drop_event=args.drop_event,
         time_skew=args.time_skew,
@@ -122,7 +121,7 @@ def train(args):
     state = create_train_state(model_cls,
                                init_rng,
                                bsz=args.bsz,
-                               seq_len=data.train_pad_length,
+                               seq_len=data.prototypical_sequence_length,
                                weight_decay=args.weight_decay,
                                batchnorm=args.batchnorm,
                                opt_config=args.opt_config,
@@ -167,7 +166,6 @@ def train(args):
                                               skey,
                                               model_cls,
                                               data.train_loader,
-                                              data.train_pad_length,
                                               args.batchnorm,
                                               lr_params)
 
@@ -176,14 +174,12 @@ def train(args):
             val_loss, val_acc = validate(state,
                                          model_cls,
                                          data.val_loader,
-                                         data.test_pad_length,
                                          args.batchnorm)
 
             print(f"[*] Running Epoch {epoch + 1} Test...")
             test_loss, test_acc = validate(state,
                                            model_cls,
                                            data.test_loader,
-                                           data.test_pad_length,
                                            args.batchnorm)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
@@ -199,7 +195,6 @@ def train(args):
             val_loss, val_acc = validate(state,
                                          model_cls,
                                          data.test_loader,
-                                         data.test_pad_length,
                                          args.batchnorm)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
