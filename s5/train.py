@@ -53,6 +53,7 @@ def train(args):
 
     # Create dataset...
     init_rng, key = random.split(init_rng, num=2)
+    num_stages = 0 if args.stage_every_n_layers == 0 else args.n_layers // args.stage_every_n_layers
     data = create_dataset_fn(
         args.dir_name, seed=args.jax_seed, bsz=args.bsz,
         crop_events=args.max_events_per_sample,
@@ -61,7 +62,8 @@ def train(args):
         drop_event=args.drop_event,
         time_skew=args.time_skew,
         downsampling=args.downsampling,
-        validate_on_test=args.validate_on_test
+        validate_on_test=args.validate_on_test,
+        stages=num_stages
     )
 
     print(f"[*] Starting S5 Training on `{args.dataset}` =>> Initializing...")
@@ -103,6 +105,7 @@ def train(args):
     model_cls = partial(
         BatchClassificationModel,
         ssm=ssm_init_fn,
+        stage_every_n_layers=args.stage_every_n_layers,
         discretization=args.discretization,
         discretization_first_layer=args.first_layer_discretization,
         d_output=data.n_classes,
@@ -122,6 +125,7 @@ def train(args):
                                init_rng,
                                bsz=args.bsz,
                                seq_len=data.prototypical_sequence_length,
+                               num_patches=data.num_patches,
                                weight_decay=args.weight_decay,
                                batchnorm=args.batchnorm,
                                opt_config=args.opt_config,

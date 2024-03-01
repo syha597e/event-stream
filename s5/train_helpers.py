@@ -79,17 +79,19 @@ def map_nested_fn(fn):
     return map_fn
 
 
-def create_train_state(model_cls,
-                       rng,
-                       bsz=128,
-                       seq_len=784,
-                       weight_decay=0.01,
-                       batchnorm=False,
-                       opt_config="standard",
-                       ssm_lr=1e-3,
-                       lr=1e-3,
-                       dt_global=False,
-                       ):
+def create_train_state(
+        model_cls,
+        rng,
+        bsz=128,
+        num_patches=0,
+        seq_len=784,
+        weight_decay=0.01,
+        batchnorm=False,
+        opt_config="standard",
+        ssm_lr=1e-3,
+        lr=1e-3,
+        dt_global=False,
+):
     """
     Initializes the training state using optax
 
@@ -106,11 +108,16 @@ def create_train_state(model_cls,
     :return:
     """
 
-    inputs = np.ones((bsz, seq_len), dtype=np.int32)
+    if num_patches == 0:
+        inputs = np.ones((bsz, seq_len), dtype=np.int32)
+        integration_timesteps = np.ones((bsz, seq_len,))
+    else:
+        inputs = np.ones((bsz, num_patches, seq_len // num_patches), dtype=np.int32)
+        integration_timesteps = np.ones((bsz, num_patches, seq_len // num_patches))
+
     lengths = np.ones(bsz, dtype=np.int32)
 
     dummy_input = (inputs, lengths)
-    integration_timesteps = np.ones((bsz, seq_len,))
 
     model = model_cls(training=True)
     init_rng, dropout_rng = jax.random.split(rng, num=2)

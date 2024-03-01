@@ -52,6 +52,8 @@ if __name__ == "__main__":
 						help="min value to sample initial timescale params from")
 	parser.add_argument("--dt_max", type=float, default=0.1,
 						help="max value to sample initial timescale params from")
+	parser.add_argument("--stage_every_n_layers", type=int, default=0,
+						help="defines the number of spatial pooling stages in the SSM")
 
 	# Data options
 	parser.add_argument("--max_events_per_sample", type=int, default=None,

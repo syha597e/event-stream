@@ -2,7 +2,7 @@ import jax
 import jax.numpy as np
 from flax import linen as nn
 from .layers import SequenceLayer
-from typing import Callable
+from functools import partial
 
 
 class StackedEncoderModel(nn.Module):
@@ -72,7 +72,91 @@ class StackedEncoderModel(nn.Module):
         x = self.encoder(x)
         for layer in self.layers:
             x = layer(x, integration_timesteps)
-        return x
+        return x, integration_timesteps
+
+
+class BootstrappedStackedEncoderModel(nn.Module):
+    """ Defines a stack of S5 layers to be used as an encoder.
+        Args:
+            ssm         (nn.Module): the SSM to be used (i.e. S5 ssm)
+            d_model     (int32):    this is the feature size of the layer inputs and outputs
+                                     we usually refer to this size as H
+            n_layers    (int32):    the number of S5 layers to stack
+            activation  (string):   Type of activation function to use
+            dropout     (float32):  dropout rate
+            training    (bool):     whether in training mode or not
+            prenorm     (bool):     apply prenorm if true or postnorm if false
+            batchnorm   (bool):     apply batchnorm if true or layernorm if false
+            bn_momentum (float32):  the batchnorm momentum if batchnorm is used
+            step_rescale  (float32):  allows for uniformly changing the timescale parameter,
+                                    e.g. after training on a different resolution for
+                                    the speech commands benchmark
+    """
+    ssm: nn.Module
+    pool_every_n_layers: int
+    discretization: str
+    discretization_first_layer: str
+    d_model: int
+    n_layers: int
+    num_embeddings: int = 0
+    activation: str = "gelu"
+    dropout: float = 0.0
+    training: bool = True
+    prenorm: bool = False
+    batchnorm: bool = False
+    bn_momentum: float = 0.9
+    step_rescale: float = 1.0
+
+    def setup(self):
+        """
+        Initializes a linear encoder and the stack of S5 layers.
+        """
+        assert self.num_embeddings > 0
+        self.encoder = nn.Embed(num_embeddings=self.num_embeddings, features=self.d_model)
+
+        self.layers = [
+            nn.vmap(
+                target=SequenceLayer,
+                variable_axes={"params": None, "dropout": 0, 'batch_stats': 0},
+                split_rngs={'params': False, 'dropout': True},
+                axis_name='patch',
+                in_axes=(0, 0),
+                out_axes=0
+            )(
+                ssm=self.ssm,
+                discretization=self.discretization_first_layer if l == 0 else self.discretization,
+                dropout=self.dropout,
+                d_model=self.d_model,
+                activation=self.activation,
+                training=self.training,
+                prenorm=self.prenorm,
+                batchnorm=self.batchnorm,
+                bn_momentum=self.bn_momentum,
+                step_rescale=self.step_rescale,
+            )
+            for l in range(self.n_layers)
+        ]
+
+    def __call__(self, x, integration_timesteps):
+        """
+        Compute the LxH output of the stacked encoder given an Lxd_input
+        input sequence.
+        Args:
+             x (float32): input sequence (L, d_input)
+        Returns:
+            output sequence (float32): (L, d_model)
+        """
+        print(f"Building model for input shape {x.shape}")
+        x = self.encoder(x)
+        for i, layer in enumerate(self.layers):
+            print(x.shape, integration_timesteps.shape)
+            x = layer(x, integration_timesteps)
+            if i % self.pool_every_n_layers == self.pool_every_n_layers - 1 and x.shape[0] // 4 > 0:
+                x = x.reshape(x.shape[0] // 4, x.shape[1] * 4, -1)
+                integration_timesteps = integration_timesteps.reshape(integration_timesteps.shape[0] // 4, integration_timesteps.shape[1] * 4)
+        x = x.squeeze()
+        integration_timesteps = integration_timesteps.squeeze()
+        return x, integration_timesteps
 
 
 def masked_meanpool(x, lengths):
@@ -152,6 +236,7 @@ class ClassificationModel(nn.Module):
                                     the speech commands benchmark
     """
     ssm: nn.Module
+    stage_every_n_layers: int
     discretization: str
     discretization_first_layer: str
     d_output: int
@@ -171,21 +256,26 @@ class ClassificationModel(nn.Module):
         """
         Initializes the S5 stacked encoder and a linear decoder.
         """
-        self.encoder = StackedEncoderModel(
-                            ssm=self.ssm,
-                            discretization=self.discretization,
-                            discretization_first_layer=self.discretization_first_layer,
-                            d_model=self.d_model,
-                            n_layers=self.n_layers,
-                            num_embeddings=self.num_embeddings,
-                            activation=self.activation,
-                            dropout=self.dropout,
-                            training=self.training,
-                            prenorm=self.prenorm,
-                            batchnorm=self.batchnorm,
-                            bn_momentum=self.bn_momentum,
-                            step_rescale=self.step_rescale,
-                                        )
+        if self.stage_every_n_layers > 0:
+            encoder_cls = partial(BootstrappedStackedEncoderModel, pool_every_n_layers=self.stage_every_n_layers)
+        else:
+            encoder_cls = StackedEncoderModel
+
+        self.encoder = encoder_cls(
+            ssm=self.ssm,
+            discretization=self.discretization,
+            discretization_first_layer=self.discretization_first_layer,
+            d_model=self.d_model,
+            n_layers=self.n_layers,
+            num_embeddings=self.num_embeddings,
+            activation=self.activation,
+            dropout=self.dropout,
+            training=self.training,
+            prenorm=self.prenorm,
+            batchnorm=self.batchnorm,
+            bn_momentum=self.bn_momentum,
+            step_rescale=self.step_rescale,
+        )
         self.decoder = nn.Dense(self.d_output)
 
     def __call__(self, x, integration_timesteps):
@@ -199,7 +289,7 @@ class ClassificationModel(nn.Module):
         """
         x, length = x  # input consists of data and prepadded seq lens
 
-        x = self.encoder(x, integration_timesteps)
+        x, integration_timesteps = self.encoder(x, integration_timesteps)
         if self.mode in ["pool"]:
             # Perform mean pooling across time
             x = masked_meanpool(x, length)

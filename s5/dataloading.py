@@ -22,6 +22,7 @@ class Data:
 			n_classes: int,
 			prototypical_sequence_length: int,
 			in_dim: int,
+			num_patches: int,
 			train_size: int
 ):
 		self.train_loader = train_loader
@@ -30,6 +31,7 @@ class Data:
 		self.aux_loaders = aux_loaders
 		self.n_classes = n_classes
 		self.prototypical_sequence_length = prototypical_sequence_length
+		self.num_patches = num_patches
 		self.in_dim = in_dim
 		self.train_size = train_size
 
@@ -107,17 +109,21 @@ def event_stream_collate_fn(batch, resolution, pad_unit, patch_ids=None):
 	else:
 		raise ValueError('resolution must contain 1 or 2 elements')
 
+	# get padding lengths
 	lengths = np.array([e.shape[-1] for e in timesteps], dtype=np.int32)
-	max_length = (lengths.max() // pad_unit) * pad_unit + pad_unit
+	pad_length = (lengths.max() // pad_unit) * pad_unit + pad_unit
+
+	# need only the full length for masking in classification model
+	lengths = np.array([e.size for e in timesteps], dtype=np.int32)
 
 	if patch_ids is None:
 		# pad tokens with -1, which results in a zero vector with embedding look-ups
-		tokens = np.stack([np.pad(e, (0, max_length - len(e)), mode='constant', constant_values=-1) for e in tokens])
-		timesteps = np.stack([np.pad(e, (0, max_length - len(e)), mode='constant', constant_values=0) for e in timesteps])
+		tokens = np.stack([np.pad(e, (0, pad_length - len(e)), mode='constant', constant_values=-1) for e in tokens])
+		timesteps = np.stack([np.pad(e, (0, pad_length - len(e)), mode='constant', constant_values=0) for e in timesteps])
 	else:
 		# pad tokens with -1, which results in a zero vector with embedding look-ups
-		tokens = np.stack([np.pad(e, ((0, 0), (0, max_length - len(e))), mode='constant', constant_values=-1) for e in tokens])
-		timesteps = np.stack([np.pad(e, ((0, 0), (0, max_length - len(e))), mode='constant', constant_values=0) for e in timesteps])
+		tokens = np.stack([np.pad(e, ((0, 0), (0, pad_length - e.shape[1])), mode='constant', constant_values=-1) for e in tokens])
+		timesteps = np.stack([np.pad(e, ((0, 0), (0, pad_length - e.shape[1])), mode='constant', constant_values=0) for e in timesteps])
 
 	# timesteps are in micro seconds... transform to milliseconds
 	timesteps = timesteps / 1000
@@ -202,7 +208,8 @@ def create_events_shd_classification_dataset(
 
 	return Data(
 		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=20, in_dim=700, prototypical_sequence_length=pad_unit, train_size=len(train_data)
+		n_classes=20, in_dim=700, prototypical_sequence_length=pad_unit, train_size=len(train_data),
+		num_patches=0
 	)
 
 
@@ -253,7 +260,8 @@ def create_events_ssc_classification_dataset(
 
 	return Data(
 		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=35, in_dim=700, prototypical_sequence_length=pad_unit, train_size=len(train_data)
+		n_classes=35, in_dim=700, prototypical_sequence_length=pad_unit, train_size=len(train_data),
+		num_patches=0
 	)
 
 
@@ -263,13 +271,13 @@ def get_patch_ids(sensor_size, stages):
 	ids_per_patch = sensor_size[0] * sensor_size[1] // num_patches
 	N = sensor_size[0] // (2 ** stages)
 	base = np.arange(N * N).reshape(N, N)
-	for _ in range(2):
+	for _ in range(stages):
 		kernel = np.arange(4).repeat(N * N).reshape(4, N, N)
 		kernel = N * N * kernel + base[None, ...]
 		kernel = kernel.reshape(2, 2, N, N)
 		base = np.transpose(kernel, (0, 2, 1, 3)).reshape(2 * N, 2 * N)
 		N = 2 * N
-	return base.flatten() // ids_per_patch
+	return base.flatten() // ids_per_patch, num_patches
 
 
 def create_events_dvs_gesture_classification_dataset(
@@ -333,9 +341,9 @@ def create_events_dvs_gesture_classification_dataset(
 	test_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=False, transform=test_transforms)
 
 	if stages > 0:
-		patch_ids = get_patch_ids(sensor_size=new_sensor_size, stages=stages)
+		patch_ids, num_patches = get_patch_ids(sensor_size=new_sensor_size, stages=stages)
 	else:
-		patch_ids = None
+		patch_ids, num_patches = None, 0
 
 	# TODO: 1. num workers > 0 2. pass num patches as argument 3. align num patches and num levels
 	# choose a minimal padding unit of 8192, which covers half the sequences.
@@ -349,7 +357,8 @@ def create_events_dvs_gesture_classification_dataset(
 
 	return Data(
 		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=11, in_dim=128 * 128 * 2, prototypical_sequence_length=pad_unit if crop_events is None else crop_events, train_size=len(train_data)
+		n_classes=11, in_dim=128 * 128 * 2, prototypical_sequence_length=pad_unit if crop_events is None else crop_events,
+		train_size=len(train_data), num_patches=num_patches
 	)
 
 
