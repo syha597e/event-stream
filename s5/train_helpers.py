@@ -11,7 +11,7 @@ from time import time
 
 # LR schedulers
 def linear_warmup(step, base_lr, end_step, lr_min=None):
-    return base_lr * (step + 1) / end_step
+    return base_lr * (step + 1) / (end_step+1) #FIXME - understand this
 
 
 def cosine_annealing(step, base_lr, end_step, lr_min=1e-6):
@@ -114,7 +114,8 @@ def create_train_state(model_cls,
     :param dt_global:
     :return:
     """
-
+    import pdb
+    #pdb.set_trace()
     if padded:
             # For retrieval tasks we have two different sets of "documents"
             if tokenized:
@@ -140,6 +141,8 @@ def create_train_state(model_cls,
                             "dropout": dropout_rng},
                            dummy_input, integration_timesteps,
                            )
+    import pdb
+    #pdb.set_trace()
     if batchnorm:
         params = variables["params"]  #.unfreeze()
         batch_stats = variables["batch_stats"]
@@ -293,6 +296,8 @@ def prep_batch(batch: tuple,
     :param in_dim:      (int) dimension of input.
     :return:
     """
+    import pdb
+    #pdb.set_trace()
     if len(batch) == 2:
         inputs, targets = batch
         aux_data = {}
@@ -355,13 +360,18 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
     Training function for an epoch that loops over batches.
     """
     # Store Metrics
+    import pdb
+    #pdb.set_trace()
     model = model(training=True)
     batch_losses = []
 
     decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min = lr_params
 
     for batch_idx, batch in enumerate(tqdm(trainloader)):
+        import pdb
+        #pdb.set_trace()
         inputs, labels, integration_times = prep_batch(batch, seq_len, in_dim)
+        #pdb.set_trace()
         rng, drop_rng = jax.random.split(rng)
         state, loss = train_step(
             state,

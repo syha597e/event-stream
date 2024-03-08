@@ -1,4 +1,6 @@
 import torch
+import torchvision
+import flax
 from pathlib import Path
 import os
 from typing import Callable, Optional, TypeVar, Dict, Tuple, List, Union
@@ -7,10 +9,14 @@ from functools import partial
 from torch.nn.functional import pad
 import numpy as np
 from s5.transform import CropEvents
+from tonic import DiskCachedDataset, SlicedDataset
+from tonic.slicers import SliceByTime
+from torch.utils.data import DataLoader
+from torchvision.transforms import RandomPerspective, RandomResizedCrop, RandomRotation
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
-DataLoader = TypeVar('DataLoader')
+#DataLoader = TypeVar('DataLoader')
 InputType = [str, Optional[int], Optional[int]]
 
 
@@ -81,6 +87,17 @@ def make_data_loader(dset,
 	# Generate the dataloaders.
 	return torch.utils.data.DataLoader(dataset=dset, collate_fn=collate_fn, batch_size=batch_size, shuffle=shuffle,
 									   drop_last=drop_last, generator=rng)
+
+def _collate_fn(batch, resolution, max_time=None):
+# x are inputs, y are targets, z are aux data
+	x, y, *z = zip(*batch)
+	x = jax.vmap(flax.linen.max_pool())(x)
+	flax.linen.max_pool
+	x = flax.nn.MaxPool2d(kernel_size=128 // opt.frame_size)(inp)
+
+
+	#x = tonic.collation.PadTensors(x,batch_first=True)
+
 
 
 def event_stream_collate_fn(batch, resolution, max_time=None):
@@ -288,6 +305,155 @@ def create_events_dvs_gesture_classification_dataset(
 		n_classes=11, in_dim=128 * 128 * 2, train_pad_length=crop_events, test_pad_length=1595392, train_size=len(train_data)
 	)
 
+def create_events_dvs_gesture_frame_classification_dataset(
+		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
+		bsz: int = 50,
+		seed: int = 42,
+		crop_events: int = None
+) -> Data:
+	"""
+	creates a view of the DVS Gesture dataset
+
+	:param cache_dir:		(str):		where to store the dataset
+	:param bsz:				(int):		Batch size.
+	:param seed:			(int)		Seed for shuffling data.
+	"""
+	print("[*] Generating DVS Gesture Classification Dataset")
+
+	# assert isinstance(crop_events, int), "default_num_events must be an integer"
+	# assert crop_events > 0, "default_num_events must be a positive integer"
+
+	if seed is not None:
+		rng = torch.Generator()
+		rng.manual_seed(seed)
+	else:
+		rng = None
+
+	def get_transforms(frame_time):
+		denoise_transform = tonic.transforms.Denoise(filter_time=10000)
+		sensor_size = tonic.datasets.DVSGesture.sensor_size
+		frame_transform_time = tonic.transforms.ToFrame(sensor_size=sensor_size,
+														time_window=frame_time * 1000,
+														include_incomplete=False)
+
+		transform = tonic.transforms.Compose([
+			# denoise_transform,
+			frame_transform_time,
+		])
+		return transform, 'toframe'
+	
+	split = 0.9
+	frame_time = 25
+	transform, tr_str = get_transforms(frame_time)
+	event_agg_method = 'mean'
+	batch_size = bsz
+	augmentation = True
+	cache = cache_dir
+
+	dataset = tonic.datasets.DVSGesture(save_to=cache_dir,
+											train=True,
+											transform=None,
+											target_transform=None)
+
+	train_size = int(split * len(dataset))
+	val_size = len(dataset) - train_size
+	train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
+
+	min_time_window = 1.7 * 1e6  # 1.7 s
+	overlap = 0
+	metadata_path = f'_{min_time_window}_{overlap}_{frame_time}_' + tr_str
+	slicer_by_time = SliceByTime(time_window=min_time_window, overlap=overlap, include_incomplete=False)
+	train_dataset_timesliced = SlicedDataset(train_set, slicer=slicer_by_time, transform=transform,
+												metadata_path=None)
+	val_dataset_timesliced = SlicedDataset(val_set, slicer=slicer_by_time, transform=transform,
+											metadata_path=None)
+	if event_agg_method == 'none' or event_agg_method == 'mean':
+			data_max = 19.0  # commented to save time, re calculate if min_time_window changes
+			# i=0
+			# for data, _ in train_dataset_timesliced:
+			#     temp_max = data.max()
+			#     data_max = temp_max if temp_max > data_max else data_max
+			#     i=i+1
+			#
+			# for data, _ in val_dataset_timesliced:
+			#     temp_max = data.max()
+			#     data_max = temp_max if temp_max > data_max else data_max
+
+			print(f'Max train value: {data_max}')
+			norm_transform = torchvision.transforms.Lambda(lambda x: x / data_max)
+	else:
+			norm_transform = None
+
+	if augmentation:
+			post_cache_transform = tonic.transforms.Compose([norm_transform, torch.tensor,
+															RandomResizedCrop(
+																	tonic.datasets.DVSGesture.sensor_size[:-1],
+																	scale=(0.6, 1.0),
+																	interpolation=torchvision.transforms.InterpolationMode.NEAREST),
+															RandomPerspective(),
+															RandomRotation(25)
+															])
+	else:
+			post_cache_transform = norm_transform
+	train_cached_dataset = DiskCachedDataset(train_dataset_timesliced, transform=post_cache_transform,
+												cache_path=os.path.join(cache, 'diskcache_train' + metadata_path))
+	val_cached_dataset = DiskCachedDataset(val_dataset_timesliced, transform=post_cache_transform,
+											cache_path=os.path.join(cache, 'diskcache_val' + metadata_path))
+
+	kwargs = {'num_workers': 1, 'pin_memory': True} if torch.cuda.is_available() else {}
+	train_dataset = DataLoader(train_cached_dataset, batch_size=batch_size, shuffle=True,
+								collate_fn=tonic.collation.PadTensors(batch_first=True), drop_last=True, **kwargs)
+	val_dataset = DataLoader(val_cached_dataset, batch_size=batch_size,
+								collate_fn=tonic.collation.PadTensors(batch_first=True), drop_last=True, **kwargs)
+
+	print(f"Loaded train dataset with {len(train_dataset.dataset)} samples")
+	print(f"Loaded test dataset with {len(val_dataset.dataset)} samples")
+
+#return train_dataset, val_dataset
+	test_dataset = tonic.datasets.DVSGesture(save_to=cache_dir,
+                                             train=False,
+                                             transform=None,
+                                             target_transform=None)
+
+	min_time_window = 1.7 * 1e6  # 1.7 s
+	overlap = 0  #
+	slicer_by_time = SliceByTime(time_window=min_time_window, overlap=overlap, include_incomplete=False)
+    # os.makedirs(os.path.join(opt.cache, 'test'), exist_ok=True)
+	metadata_path = f'_{min_time_window}_{overlap}_{frame_time}_' + tr_str
+	test_dataset_timesliced = SlicedDataset(test_dataset, slicer=slicer_by_time, transform=transform,
+                                            metadata_path=None)
+
+	if event_agg_method == 'none' or event_agg_method == 'mean':
+		data_max = 18.5  # commented to save time, re calculate if min_time_window changes
+        # for data, _ in test_dataset_timesliced:
+        #     temp_max = data.max()
+        #     data_max = temp_max if temp_max > data_max else data_max
+
+		print(f'Max test value: {data_max}')
+		norm_transform = torchvision.transforms.Lambda(lambda x: x / data_max)
+	else:
+		norm_transform = None
+	cached_test_dataset_time = DiskCachedDataset(test_dataset_timesliced, transform=norm_transform,
+                                                 cache_path=os.path.join(cache, 'diskcache_test' + metadata_path))	
+	test_dataset = DataLoader(cached_test_dataset_time, batch_size=bsz,
+                                             collate_fn=tonic.collation.PadTensors(batch_first=True), drop_last=True)
+	print(f"Loaded test dataset with {len(test_dataset)} samples")
+	print(f"Loaded sliced test dataset with {len(cached_test_dataset_time)} samples")
+
+
+	# train_loader, val_loader, test_loader = event_stream_dataloader(
+	# 	train_dataset, val_dataset, val_dataset,
+	# 	collate_fn=partial(event_stream_collate_fn, resolution=(128, 128)),
+	# 	bsz=bsz, rng=rng, shuffle_training=False
+	# )
+
+	return Data(
+		train_dataset, val_dataset, test_dataset, aux_loaders={},
+		n_classes=11, in_dim=32768, train_pad_length=67, test_pad_length=67, train_size=len(train_dataset)
+	)
+
+
+
 def create_speechcommands35_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
 		bsz: int = 50,
@@ -348,4 +514,5 @@ Datasets = {
 	"shd-classification": create_events_shd_classification_dataset,
 	"ssc-classification": create_events_ssc_classification_dataset,
 	"dvs-gesture-classification": create_events_dvs_gesture_classification_dataset,
+	"dvs-frame-gesture-classification":create_events_dvs_gesture_frame_classification_dataset,
 }

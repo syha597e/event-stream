@@ -1,6 +1,29 @@
 from flax import linen as nn
 import jax
 
+class MergeEvents:
+    def __init__(self, method: str = 'mean', flatten: bool = True):
+        assert method in ['mean', 'diff', 'bool', 'none'], 'Unknown Method'
+        self.method = method
+        self.flatten = flatten
+
+    def __call__(self, data):
+        if self.method == 'mean':
+            data = jax.numpy.mean(data, axis=1)
+        elif self.method == 'diff':
+            data = data[:, 0, ...] - data[:, 1, ...]
+        elif self.method == 'bool':
+            data = jax.numpy.where(data > 1, 1, 0)
+        else:
+            pass
+
+        if self.flatten:
+            return data.flatten()
+        else:
+            return data
+        
+    
+
 
 class SequenceLayer(nn.Module):
     """ Defines a single S5 layer, with S5 SSM, nonlinearity,
@@ -64,6 +87,10 @@ class SequenceLayer(nn.Module):
         skip = x
         if self.prenorm:
             x = self.norm(x)
+        #x = jax.vmap(nn.max_pool(inputs=(128,128),window_shape=2))(x)
+        #merge_event = MergeEvents(method='mean', flatten=True)
+        #pdb.set_trace()
+       # x = jax.vmap(merge_event)(x)
         x = self.seq(x, integration_timesteps)
 
         if self.activation in ["full_glu"]:

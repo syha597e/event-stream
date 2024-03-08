@@ -99,5 +99,7 @@ if __name__ == "__main__":
 	  	       "noBCdecay:      no weight decay on B (ssm lr), no weight decay on C (ssm lr) \\")
 	parser.add_argument("--jax_seed", type=int, default=1919,
 						help="seed randomness")
+	parser.add_argument("--use_cnn", type=str2bool, default=False,
+						help="train CNN on dvs frames. Ignore for other tasks")
 
 	train(parser.parse_args())
