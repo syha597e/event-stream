@@ -83,7 +83,6 @@ class StackedEncoderModel(nn.Module):
                                     the speech commands benchmark
     """
     ssm: nn.Module
-    cnn: nn.Module
     discretization: str
     discretization_first_layer: str
     d_model: int
@@ -105,7 +104,7 @@ class StackedEncoderModel(nn.Module):
         """
         # don't use bias to void zero tokens to produce an input
         if self.use_cnn:
-            self.conv_layer = self.cnn()
+            self.conv_layer = CNNModule()
         if self.tokenized:
             assert self.num_embeddings > 0
             print("Using tokenized input")
@@ -228,9 +227,9 @@ class ClassificationModel(nn.Module):
             step_rescale  (float32):  allows for uniformly changing the timescale parameter,
                                     e.g. after training on a different resolution for
                                     the speech commands benchmark
+            use_cnn (bool): apply custom CNN layer to the input frames
     """
     ssm: nn.Module
-    cnn: nn.Module
     discretization: str
     discretization_first_layer: str
     d_output: int
@@ -253,11 +252,8 @@ class ClassificationModel(nn.Module):
         """
         Initializes the S5 stacked encoder and a linear decoder.
         """
-        if not self.use_cnn:
-            self.cnn = None
         self.encoder = StackedEncoderModel(
                                 ssm=self.ssm,
-                                cnn=self.cnn,
                                 discretization=self.discretization,
                                 discretization_first_layer=self.discretization_first_layer,
                                 d_model=self.d_model,
@@ -271,6 +267,7 @@ class ClassificationModel(nn.Module):
                                 batchnorm=self.batchnorm,
                                 bn_momentum=self.bn_momentum,
                                 step_rescale=self.step_rescale,
+                                use_cnn=self.use_cnn
                                             )
         self.decoder = nn.Dense(self.d_output)
 
@@ -283,15 +280,9 @@ class ClassificationModel(nn.Module):
         Returns:
             output (float32): (d_output)
         """
-        import pdb
-        #pdb.set_trace()
         if self.padded:
             x, length = x  # input consists of data and prepadded seq lens
-        import pdb
-        #pdb.set_trace()
         x = self.encoder(x, integration_timesteps)
-        import pdb
-        #pdb.set_trace()
         if self.mode in ["pool"]:
             # Perform mean pooling across time
             if self.padded:

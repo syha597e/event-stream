@@ -7,13 +7,9 @@ import wandb
 from .train_helpers import create_train_state, reduce_lr_on_plateau,\
     linear_warmup, cosine_annealing, constant_lr, train_epoch, validate
 from .dataloading import Datasets
-from .seq_model import BatchClassificationModel, RetrievalModel,CNNModule
+from .seq_model import BatchClassificationModel, RetrievalModel
 from .ssm import init_S5SSM
 from .ssm_init import make_DPLR_HiPPO
-
-import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-
 
 def train(args):
     """
@@ -148,7 +144,6 @@ def train(args):
         model_cls = partial(
             BatchClassificationModel,
             ssm=ssm_init_fn,
-            cnn = CNNModule,
             discretization=args.discretization,
             discretization_first_layer=args.first_layer_discretization,
             d_output=data.n_classes,
@@ -167,8 +162,6 @@ def train(args):
         )
 
     # initialize training state
-    # import pdb
-    # pdb.set_trace()
     state = create_train_state(model_cls,
                                init_rng,
                                padded,
