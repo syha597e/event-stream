@@ -309,12 +309,12 @@ def create_events_dvs_gesture_classification_dataset(
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
 		collate_fn=partial(event_stream_collate_fn, resolution=new_sensor_size[:2]),
-		bsz=bsz, rng=rng, shuffle_training=False
+		bsz=bsz, rng=rng, shuffle_training=True
 	)
 
 	return Data(
 		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=11, in_dim=128 * 128 * 2, train_pad_length=crop_events, test_pad_length=1595392, train_size=len(train_data)
+		n_classes=11, in_dim=np.prod(new_sensor_size), train_pad_length=crop_events, test_pad_length=1595392, train_size=len(train_data)
 	)
 
 
