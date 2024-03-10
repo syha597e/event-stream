@@ -15,33 +15,51 @@ def merge_events(data,method='mean',flatten=False):
         return data.flatten()
     else:
         return data
+    
+            # self.conv = nn.Sequential(nn.Conv2d(channels, 64, kernel_size=11, stride=4, padding=2),
+            #                           nn.ReLU(inplace=True),
+            #                           nn.MaxPool2d(kernel_size=3, stride=2),
+            #                           nn.Conv2d(
+            #                               64, 192, kernel_size=5, padding=2),
+            #                           nn.ReLU(inplace=True),
+            #                           nn.MaxPool2d(kernel_size=3, stride=2),
+            #                           nn.Conv2d(
+            #                               192, 384, kernel_size=3, padding=1),
+            #                           nn.ReLU(inplace=True),
+            #                           nn.MaxPool2d(
+            #                               kernel_size=3, stride=2) if opt.frame_size >= 64 else nn.Identity(),
+            #                           nn.Conv2d(
+            #                               384, 256, kernel_size=3, padding=1),
+            #                           nn.ReLU(inplace=True),
+            #                           nn.MaxPool2d(
+            #                               kernel_size=3, stride=2) if opt.frame_size >= 128 else nn.Identity(),
+            #                           nn.Conv2d(
+            #                               256, 256, kernel_size=3, padding=1),
+            #                           nn.ReLU(inplace=True),
+            #                           # nn.MaxPool2d(kernel_size=3, stride=2),
+            #                           nn.Flatten(),
+            #                           nn.Linear(256, 512)
+            #                           )
 
 class CNNModule(nn.Module):
     @nn.compact
     def __call__(self, x):
-        x= nn.Sequential([
-                                #nn.Conv2d(channels, 64, kernel_size=11, stride=4, padding=2),
-                                nn.Conv(features=64, kernel_size=(11,11), strides=4, padding=2),
-                                nn.relu,
-                                #partial(nn.max_pool,window_shape=3, strides=2),
-                                nn.Conv(features=32, kernel_size=(5,5),padding=2),
-                                      #nn.Conv2d(64, 192, kernel_size=5, padding=2),
-                                nn.relu,
-                                #nn.max_pool(window_shape=3, strides=2),
-                                      #nn.Conv2d(192, 384, kernel_size=3, padding=1),
-                                nn.Conv(features=384, kernel_size=(3,3), padding=1),
-                                nn.relu,
-                                #nn.max_plool(window_shape=3, strides=2),
-                                #          kernel_size=3, stride=2) if opt.frame_size >= 64 else nn.Identity(),
-                                nn.Conv(features=256, kernel_size=(3,3), padding=1),
-                                nn.relu,
-                                #nn.max_plool(window_shape=3, strides=2),
-                                          #kernel_size=3, stride=2) if opt.frame_size >= 128 else nn.Identity(),
-                                nn.Conv(features=256, kernel_size=(3,3), padding=1),
-                                nn.relu])(x)
-        #x = x.reshape((x.shape[0], -1)) # equivalent to torch.nn.Flatten                                      # nn.MaxPool2d(kernel_size=3, stride=2),
+        x = nn.Conv(features=64, kernel_size=(11,11), strides=4, padding=2)(x)
+        x = nn.relu(x)
+        x = nn.max_pool(x,window_shape=(3,3),strides=(2,2))
+        x = nn.Conv(features=192, kernel_size=(5,5),padding=2)(x)
+        x = nn.relu(x)
+        x = nn.max_pool(x,window_shape=(3,3),strides=(2,2))
+        x = nn.Conv(features=384, kernel_size=(3,3),padding=1)(x)
+        x = nn.relu(x)
+        x = nn.max_pool(x,window_shape=(3,3),strides=(2,2))
+        x = nn.Conv(features=256, kernel_size=(3,3),padding=1)(x)
+        x = nn.relu(x)
+        x = nn.max_pool(x,window_shape=(3,3),strides=(2,2))
+        x = nn.Conv(features=256, kernel_size=(3,3),padding=1)(x)
+        x = nn.relu(x)
         x  = x.flatten()
-        x = nn.Dense(256, 512)(x)
+        x = nn.Dense(512)(x)
         return x
 
 class MergeEvents:
