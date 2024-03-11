@@ -10,7 +10,7 @@ from torch.nn.functional import pad
 import numpy as np
 from s5.transform import CropEvents
 from tonic import DiskCachedDataset, SlicedDataset
-from tonic.slicers import SliceByTime
+from tonic.slicers import SliceByTime,SliceByEventCount
 from torch.utils.data import DataLoader
 from torchvision.transforms import RandomPerspective, RandomResizedCrop, RandomRotation
 
@@ -309,7 +309,8 @@ def create_events_dvs_gesture_frame_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
 		bsz: int = 50,
 		seed: int = 42,
-		crop_events: int = None
+		crop_events: int = None,
+		slice_by: str = "time"
 ) -> Data:
 	"""
 	creates a view of the DVS Gesture dataset
@@ -341,7 +342,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
 			frame_transform_time,
 		])
 		return transform, 'toframe'
-	
+	slice_by = "event"
 	split = 0.9
 	frame_time = 25
 	transform, tr_str = get_transforms(frame_time)
@@ -358,33 +359,49 @@ def create_events_dvs_gesture_frame_classification_dataset(
 	train_size = int(split * len(dataset))
 	val_size = len(dataset) - train_size
 	train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
+	test_dataset = tonic.datasets.DVSGesture(save_to=cache_dir,
+                                             train=False,
+                                             transform=None,
+                                             target_transform=None)
 
 	min_time_window = 1.7 * 1e6  # 1.7 s
 	overlap = 0
 	metadata_path = f'_{min_time_window}_{overlap}_{frame_time}_' + tr_str
-	slicer_by_time = SliceByTime(time_window=min_time_window, overlap=overlap, include_incomplete=False)
-	train_dataset_timesliced = SlicedDataset(train_set, slicer=slicer_by_time, transform=transform,
+	if slice_by=='event':
+		slicer_by_event = SliceByEventCount(event_count=1000,overlap=0,include_incomplete=False)
+		train_dataset_timesliced = SlicedDataset(train_set, slicer=slicer_by_event, transform=transform,
 												metadata_path=None)
-	val_dataset_timesliced = SlicedDataset(val_set, slicer=slicer_by_time, transform=transform,
+		val_dataset_timesliced = SlicedDataset(val_set, slicer=slicer_by_event, transform=transform,
 											metadata_path=None)
+		test_dataset_timesliced = SlicedDataset(test_dataset, slicer=slicer_by_event, transform=transform,
+                                            metadata_path=None)
+	elif slice_by=='time':
+		slicer_by_time = SliceByTime(time_window=min_time_window, overlap=overlap, include_incomplete=False)
+		train_dataset_timesliced = SlicedDataset(train_set, slicer=slicer_by_time, transform=transform,
+												metadata_path=None)
+		val_dataset_timesliced = SlicedDataset(val_set, slicer=slicer_by_time, transform=transform,
+											metadata_path=None)
+		test_dataset_timesliced = SlicedDataset(test_dataset, slicer=slicer_by_time, transform=transform,
+                                            metadata_path=None)
+	
 	if event_agg_method == 'none' or event_agg_method == 'mean':
 			data_max = 19.0  # commented to save time, re calculate if min_time_window changes
-			# i=0
-			# for data, _ in train_dataset_timesliced:
-			#     temp_max = data.max()
-			#     data_max = temp_max if temp_max > data_max else data_max
-			#     i=i+1
-			#
-			# for data, _ in val_dataset_timesliced:
-			#     temp_max = data.max()
-			#     data_max = temp_max if temp_max > data_max else data_max
+			i=0
+			for data, _ in train_dataset_timesliced:
+				temp_max = data.max()
+				data_max = temp_max if temp_max > data_max else data_max
+				i=i+1
+			
+			for data, _ in val_dataset_timesliced:
+				temp_max = data.max()
+				data_max = temp_max if temp_max > data_max else data_max
 
 			print(f'Max train value: {data_max}')
 			norm_transform = torchvision.transforms.Lambda(lambda x: x / data_max)
 	else:
 			norm_transform = None
 
-	if augmentation:
+	if augmentation: #Try torch augmentation
 			post_cache_transform = tonic.transforms.Compose([norm_transform, torch.tensor,
 															RandomResizedCrop(
 																	tonic.datasets.DVSGesture.sensor_size[:-1],
@@ -401,51 +418,21 @@ def create_events_dvs_gesture_frame_classification_dataset(
 											cache_path=os.path.join(cache, 'diskcache_val' + metadata_path))
 
 	kwargs = {'num_workers': 1, 'pin_memory': True} if torch.cuda.is_available() else {}
+
 	train_dataset = DataLoader(train_cached_dataset, batch_size=batch_size, shuffle=True,
 								collate_fn=tonic.collation.PadTensors(batch_first=True), drop_last=True, **kwargs)
 	val_dataset = DataLoader(val_cached_dataset, batch_size=batch_size,
 								collate_fn=tonic.collation.PadTensors(batch_first=True), drop_last=True, **kwargs)
-
-	print(f"Loaded train dataset with {len(train_dataset.dataset)} samples")
-	print(f"Loaded test dataset with {len(val_dataset.dataset)} samples")
-
-#return train_dataset, val_dataset
-	test_dataset = tonic.datasets.DVSGesture(save_to=cache_dir,
-                                             train=False,
-                                             transform=None,
-                                             target_transform=None)
-
-	min_time_window = 1.7 * 1e6  # 1.7 s
-	overlap = 0  #
-	slicer_by_time = SliceByTime(time_window=min_time_window, overlap=overlap, include_incomplete=False)
-    # os.makedirs(os.path.join(opt.cache, 'test'), exist_ok=True)
-	metadata_path = f'_{min_time_window}_{overlap}_{frame_time}_' + tr_str
-	test_dataset_timesliced = SlicedDataset(test_dataset, slicer=slicer_by_time, transform=transform,
-                                            metadata_path=None)
-
-	if event_agg_method == 'none' or event_agg_method == 'mean':
-		data_max = 18.5  # commented to save time, re calculate if min_time_window changes
-        # for data, _ in test_dataset_timesliced:
-        #     temp_max = data.max()
-        #     data_max = temp_max if temp_max > data_max else data_max
-
-		print(f'Max test value: {data_max}')
-		norm_transform = torchvision.transforms.Lambda(lambda x: x / data_max)
-	else:
-		norm_transform = None
 	cached_test_dataset_time = DiskCachedDataset(test_dataset_timesliced, transform=norm_transform,
                                                  cache_path=os.path.join(cache, 'diskcache_test' + metadata_path))	
 	test_dataset = DataLoader(cached_test_dataset_time, batch_size=bsz,
                                              collate_fn=tonic.collation.PadTensors(batch_first=True), drop_last=True)
+
+	print(f"Loaded train dataset with {len(train_dataset.dataset)} samples")
+	print(f"Loaded val dataset with {len(val_dataset.dataset)} samples")
 	print(f"Loaded test dataset with {len(test_dataset)} samples")
 	print(f"Loaded sliced test dataset with {len(cached_test_dataset_time)} samples")
-
-
-	# train_loader, val_loader, test_loader = event_stream_dataloader(
-	# 	train_dataset, val_dataset, val_dataset,
-	# 	collate_fn=partial(event_stream_collate_fn, resolution=(128, 128)),
-	# 	bsz=bsz, rng=rng, shuffle_training=False
-	# )
+    # os.makedirs(os.path.join(opt.cache, 'test'), exist_ok=True)
 
 	return Data(
 		train_dataset, val_dataset, test_dataset, aux_loaders={},

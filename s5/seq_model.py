@@ -163,6 +163,7 @@ class StackedEncoderModel(nn.Module):
             x = jax.vmap(self.conv_layer)(x)
         else:
             x = jax.vmap(merge_events)(x)
+            x = x.reshape(67,128,128,1) #FIXME hardcode
         x = self.encoder(x)
         for layer in self.layers:
             x = layer(x, integration_timesteps)

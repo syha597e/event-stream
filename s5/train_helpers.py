@@ -114,8 +114,6 @@ def create_train_state(model_cls,
     :param dt_global:
     :return:
     """
-    import pdb
-    #pdb.set_trace()
     if padded:
             # For retrieval tasks we have two different sets of "documents"
             if tokenized:
@@ -360,8 +358,6 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
     Training function for an epoch that loops over batches.
     """
     # Store Metrics
-    import pdb
-    #pdb.set_trace()
     model = model(training=True)
     batch_losses = []
 

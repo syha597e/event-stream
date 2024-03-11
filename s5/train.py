@@ -86,10 +86,17 @@ def train(args):
 
     # Create dataset...
     init_rng, key = random.split(init_rng, num=2)
-    data = create_dataset_fn(
-            args.dir_name, seed=args.jax_seed, bsz=args.bsz,
-            crop_events=args.max_events_per_sample
-        )
+    if args.dataset in ["dvs-frame-gesture-classification"]:
+        data = create_dataset_fn(
+                args.dir_name, seed=args.jax_seed, bsz=args.bsz,
+                crop_events=args.max_events_per_sample,
+                slice_by = args.slicer_type
+            )
+    else:
+        data = create_dataset_fn(
+                args.dir_name, seed=args.jax_seed, bsz=args.bsz,
+                crop_events=args.max_events_per_sample
+            )
 
     print(f"[*] Starting S5 Training on `{args.dataset}` =>> Initializing...")
 
