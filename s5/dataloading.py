@@ -356,7 +356,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
 	overlap = 0
 	metadata_path = f'_{min_time_window}_{overlap}_{frame_time}_' + tr_str
 	if slice_by=='event': #TODO - Make event based slicing trainable
-		slicer_by_event = SliceByEventCount(event_count=10000,overlap=0,include_incomplete=False)
+		slicer_by_event = SliceByEventCount(event_count=1000,overlap=0,include_incomplete=False)
 		train_dataset_timesliced = SlicedDataset(train_set, slicer=slicer_by_event, transform=transform,
 												metadata_path=None)
 		val_dataset_timesliced = SlicedDataset(val_set, slicer=slicer_by_event, transform=transform,
@@ -479,7 +479,8 @@ def create_speechcommands35_classification_dataset(
 		'valloader2': val_loader_2,
 		'testloader2': tst_loader_2,
 	}
-
+	import pdb
+	pdb.set_trace()
 	return Data(
 		trn_loader, val_loader, tst_loader, aux_loaders=aux_loaders,
 		n_classes=N_CLASSES, in_dim=IN_DIM, train_pad_length=SEQ_LENGTH, test_pad_length=SEQ_LENGTH, train_size=TRAIN_SIZE

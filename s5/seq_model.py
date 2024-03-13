@@ -152,7 +152,7 @@ def merge_events(data,method='mean',flatten=False):
 
 class CNNModule(nn.Module):
     @nn.compact
-    def __call__(self, x,pretrained=True):
+    def __call__(self, x, pretrained=False):
         if pretrained:
             x = pad_image(x,(48,48))
             x = x.reshape(1,224,224,3)
@@ -280,7 +280,7 @@ class StackedEncoderModel(nn.Module):
             if self.use_pretrained: #TODO - vmap giving memory error for pretrained model
                 output_inner = [] 
                 for i in range(67):
-                    output_inner.append(self.conv_layer(x[i]))
+                    output_inner.append(self.conv_layer(x[i],pretrained=True))
                 cur_layer_input = np.stack(output_inner)
             else:
                 cur_layer_input = jax.vmap(self.conv_layer)(x)

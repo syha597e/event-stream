@@ -11,9 +11,6 @@ from .seq_model import BatchClassificationModel, RetrievalModel
 from .ssm import init_S5SSM
 from .ssm_init import make_DPLR_HiPPO
 
-import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-
 def train(args):
     """
     Main function to train over a certain number of epochs
@@ -171,7 +168,6 @@ def train(args):
             use_cnn = args.use_cnn,
             use_pretrained=args.use_pretrained,
         )
-
     # initialize training state
     state = create_train_state(model_cls,
                                init_rng,
@@ -187,7 +183,6 @@ def train(args):
                                ssm_lr=ssm_lr,
                                lr=lr,
                                dt_global=args.dt_global)
-
     # Training Loop over epochs
     best_loss, best_acc, best_epoch = 100000000, -100000000.0, 0  # This best loss is val_loss
     count, best_val_loss = 0, 100000000  # This line is for early stopping purposes
