@@ -4,6 +4,138 @@ from flax import linen as nn
 from .layers import SequenceLayer
 from typing import Callable
 from functools import partial
+from jax_resnet import pretrained_resnet, slice_variables, Sequential
+from flax.core import FrozenDict,frozen_dict
+
+class Head(nn.Module):
+    '''head model'''
+    batch_norm_cls: partial = partial(nn.BatchNorm, momentum=0.9)
+    @nn.compact
+    def __call__(self, inputs, train: bool):
+        output_n = inputs.shape[-1]
+        x = self.batch_norm_cls(use_running_average=not train)(inputs)
+        x = nn.Dropout(rate=0.25)(x, deterministic=not train)
+        x = nn.Dense(features=output_n)(x)
+        x = nn.relu(x)
+        x = self.batch_norm_cls(use_running_average=not train)(x)
+        x = nn.Dropout(rate=0.5)(x, deterministic=not train)
+        x = nn.Dense(features=512)(x)
+        return x
+
+
+class Model(nn.Module):
+    '''Combines backbone and head model'''
+    backbone: Sequential
+    head: Head
+        
+    def __call__(self, inputs, train: bool):
+        x = self.backbone(inputs)
+        # average pool layer
+        x = np.mean(x, axis=(1, 2))
+        x = self.head(x, train)
+        return x
+
+
+def get_backbone_and_params(model_arch: str):
+    '''
+    Get backbone and params
+    1. Loads pretrained model (resnet50)
+    2. Get model and param structure except last 2 layers
+    3. Extract the corresponding subset of the variables dict
+    INPUT : model_arch
+    RETURNS backbone , backbone_params
+    '''
+    if model_arch == 'resnet50':
+        resnet_tmpl, params = pretrained_resnet(50)
+        model = resnet_tmpl()
+    else:
+        raise NotImplementedError
+        
+    # get model & param structure for backbone
+    start, end = 0, len(model.layers) - 2
+    backbone = Sequential(model.layers[start:end])
+    backbone_params = slice_variables(params, start, end)
+    return backbone, backbone_params
+
+def get_model_and_variables(model_arch: str, head_init_key: int):
+    '''
+    Get model and variables 
+    1. Initialise inputs(shape=(1,image_size,image_size,3))
+    2. Get backbone and params
+    3. Apply backbone model and get outputs
+    4. Initialise head
+    5. Create final model using backbone and head
+    6. Combine params from backbone and head
+    
+    INPUT model_arch, head_init_key
+    RETURNS  model, variables 
+    '''
+    
+    #backbone
+    inputs = np.ones((1,224,224, 3), np.float32)
+    backbone, backbone_params = get_backbone_and_params(model_arch)
+    key = jax.random.PRNGKey(head_init_key)
+    backbone_output = backbone.apply(backbone_params, inputs, mutable=False)
+    
+    #head
+    head_inputs = np.ones((1, backbone_output.shape[-1]), np.float32)
+    head = Head()
+    head_params = head.init(key, head_inputs, train=False)
+    
+    #final model
+    model = Model(backbone, head)
+    variables = FrozenDict({
+        'params': {
+            'backbone': backbone_params['params'],
+            'head': head_params['params']
+        },
+        'batch_stats': {
+            'backbone': backbone_params['batch_stats'],
+            'head': head_params['batch_stats']
+        }
+    })
+    return model, variables
+
+def prep_image_for_transferlearning(images, pad_size):
+    """
+    Pad a sequence of images with zeros using np.pad.
+
+    Parameters:
+    - images: numpy array of shape (num_images, height, width, channels)
+    - pad_size: tuple (pad_height, pad_width) for padding size
+
+    Returns:
+    - padded_images: numpy array of shape (num_images, padded_height, padded_width, channels)
+    """
+
+    # Pad dimensions for each axis
+    pad_width = ((0, 0), (pad_size[0], pad_size[0]), (pad_size[1], pad_size[1]), (0, 0))
+    
+    # Pad images
+    padded_images = np.pad(images, pad_width, mode='constant')
+    
+    return padded_images
+
+def pad_image(image, pad_size):
+    """
+    Pad a single image with zeros using np.pad.
+
+    Parameters:
+    - image: numpy array of shape (height, width, channels)
+    - pad_size: tuple (pad_height, pad_width) for padding size
+
+    Returns:
+    - padded_image: numpy array of shape (padded_height, padded_width, channels)
+    """
+
+    # Pad dimensions for each axis
+    pad_width = ((pad_size[0], pad_size[0]), (pad_size[1], pad_size[1]), (0, 0))
+    
+    # Pad image
+    padded_image = np.pad(image, pad_width, mode='constant')
+    padded_image = np.repeat(padded_image[:, :, np.newaxis, :], 3, axis=2)
+    return padded_image
+
 
 def merge_events(data,method='mean',flatten=False):
     if method == 'mean':
@@ -16,51 +148,35 @@ def merge_events(data,method='mean',flatten=False):
     else:
         return data
     
-            # self.conv = nn.Sequential(nn.Conv2d(channels, 64, kernel_size=11, stride=4, padding=2),
-            #                           nn.ReLU(inplace=True),
-            #                           nn.MaxPool2d(kernel_size=3, stride=2),
-            #                           nn.Conv2d(
-            #                               64, 192, kernel_size=5, padding=2),
-            #                           nn.ReLU(inplace=True),
-            #                           nn.MaxPool2d(kernel_size=3, stride=2),
-            #                           nn.Conv2d(
-            #                               192, 384, kernel_size=3, padding=1),
-            #                           nn.ReLU(inplace=True),
-            #                           nn.MaxPool2d(
-            #                               kernel_size=3, stride=2) if opt.frame_size >= 64 else nn.Identity(),
-            #                           nn.Conv2d(
-            #                               384, 256, kernel_size=3, padding=1),
-            #                           nn.ReLU(inplace=True),
-            #                           nn.MaxPool2d(
-            #                               kernel_size=3, stride=2) if opt.frame_size >= 128 else nn.Identity(),
-            #                           nn.Conv2d(
-            #                               256, 256, kernel_size=3, padding=1),
-            #                           nn.ReLU(inplace=True),
-            #                           # nn.MaxPool2d(kernel_size=3, stride=2),
-            #                           nn.Flatten(),
-            #                           nn.Linear(256, 512)
-            #                           )
+
 
 class CNNModule(nn.Module):
     @nn.compact
-    def __call__(self, x):
-        x = nn.Conv(features=64, kernel_size=(11,11), strides=4, padding=2)(x)
-        x = nn.relu(x)
-        x = nn.max_pool(x,window_shape=(3,3),strides=(2,2))
-        x = nn.Conv(features=192, kernel_size=(5,5),padding=2)(x)
-        x = nn.relu(x)
-        x = nn.max_pool(x,window_shape=(3,3),strides=(2,2))
-        x = nn.Conv(features=384, kernel_size=(3,3),padding=1)(x)
-        x = nn.relu(x)
-        x = nn.max_pool(x,window_shape=(3,3),strides=(2,2))
-        x = nn.Conv(features=256, kernel_size=(3,3),padding=1)(x)
-        x = nn.relu(x)
-        x = nn.max_pool(x,window_shape=(3,3),strides=(2,2))
-        x = nn.Conv(features=256, kernel_size=(3,3),padding=1)(x)
-        x = nn.relu(x)
-        x  = x.flatten()
-        x = nn.Dense(512)(x)
-        return x
+    def __call__(self, x,pretrained=True):
+        if pretrained:
+            x = pad_image(x,(48,48))
+            x = x.reshape(1,224,224,3)
+            model, variables = get_model_and_variables('resnet50', 0)
+            out,batch_stats = model.apply({'params': variables['params'],'batch_stats': variables['batch_stats']},x, train=False,rngs={'dropout': jax.random.PRNGKey(0)}, mutable='batch_stats')
+            return out.reshape(-1,)
+        else:
+            x = nn.Conv(features=64, kernel_size=(11,11), strides=4, padding=2)(x)
+            x = nn.relu(x)
+            x = nn.max_pool(x,window_shape=(3,3),strides=(2,2))
+            x = nn.Conv(features=192, kernel_size=(5,5),padding=2)(x)
+            x = nn.relu(x)
+            x = nn.max_pool(x,window_shape=(3,3),strides=(2,2))
+            x = nn.Conv(features=384, kernel_size=(3,3),padding=1)(x)
+            x = nn.relu(x)
+            x = nn.max_pool(x,window_shape=(3,3),strides=(2,2))
+            x = nn.Conv(features=256, kernel_size=(3,3),padding=1)(x)
+            x = nn.relu(x)
+            x = nn.max_pool(x,window_shape=(3,3),strides=(2,2))
+            x = nn.Conv(features=256, kernel_size=(3,3),padding=1)(x)
+            x = nn.relu(x)
+            x  = x.flatten()
+            x = nn.Dense(512)(x)
+            return x
 
 class MergeEvents:
     def __init__(self, method: str = 'mean', flatten: bool = True):
@@ -115,6 +231,7 @@ class StackedEncoderModel(nn.Module):
     bn_momentum: float = 0.9
     step_rescale: float = 1.0
     use_cnn:bool = True
+    use_pretrained:bool =False
 
     def setup(self):
         """
@@ -156,15 +273,22 @@ class StackedEncoderModel(nn.Module):
             output sequence (float32): (L, d_model)
         """
         x = x.reshape(67,128,128,2) #FIXME - hardcode
-        if self.use_cnn: #FIXME - Add to configuration
+        if self.use_cnn:
             flat_merge_events = partial(merge_events,flatten=False)
             x = jax.vmap(flat_merge_events)(x)
             x = x.reshape(67,128,128,1) #FIXME hardcode
-            x = jax.vmap(self.conv_layer)(x)
+            if self.use_pretrained: #TODO - vmap giving memory error for pretrained model
+                output_inner = [] 
+                for i in range(67):
+                    output_inner.append(self.conv_layer(x[i]))
+                cur_layer_input = np.stack(output_inner)
+            else:
+                cur_layer_input = jax.vmap(self.conv_layer)(x)
         else:
             x = jax.vmap(merge_events)(x)
             x = x.reshape(67,128,128,1) #FIXME hardcode
-        x = self.encoder(x)
+            cur_layer_input = x
+        x = self.encoder(cur_layer_input)
         for layer in self.layers:
             x = layer(x, integration_timesteps)
         return x
@@ -246,7 +370,8 @@ class ClassificationModel(nn.Module):
             step_rescale  (float32):  allows for uniformly changing the timescale parameter,
                                     e.g. after training on a different resolution for
                                     the speech commands benchmark
-            use_cnn (bool): apply custom CNN layer to the input frames
+            use_cnn (bool): apply CNN layers to the input frames
+            use_pretrained (bool): apply trained resnet50 layers to the input frames instead of custom CNN layer if use_cnn=True
     """
     ssm: nn.Module
     discretization: str
@@ -265,8 +390,8 @@ class ClassificationModel(nn.Module):
     batchnorm: bool = False
     bn_momentum: float = 0.9
     step_rescale: float = 1.0
-    use_cnn: bool = True
-
+    use_cnn: bool = False
+    use_pretrained: bool = False
     def setup(self):
         """
         Initializes the S5 stacked encoder and a linear decoder.
@@ -286,7 +411,8 @@ class ClassificationModel(nn.Module):
                                 batchnorm=self.batchnorm,
                                 bn_momentum=self.bn_momentum,
                                 step_rescale=self.step_rescale,
-                                use_cnn=self.use_cnn
+                                use_cnn=self.use_cnn,
+                                use_pretrained=self.use_pretrained,
                                             )
         self.decoder = nn.Dense(self.d_output)
 

@@ -11,6 +11,9 @@ from .seq_model import BatchClassificationModel, RetrievalModel
 from .ssm import init_S5SSM
 from .ssm_init import make_DPLR_HiPPO
 
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 def train(args):
     """
     Main function to train over a certain number of epochs
@@ -166,6 +169,7 @@ def train(args):
             batchnorm=args.batchnorm,
             bn_momentum=args.bn_momentum,
             use_cnn = args.use_cnn,
+            use_pretrained=args.use_pretrained,
         )
 
     # initialize training state

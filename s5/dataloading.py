@@ -88,17 +88,6 @@ def make_data_loader(dset,
 	return torch.utils.data.DataLoader(dataset=dset, collate_fn=collate_fn, batch_size=batch_size, shuffle=shuffle,
 									   drop_last=drop_last, generator=rng)
 
-def _collate_fn(batch, resolution, max_time=None):
-# x are inputs, y are targets, z are aux data
-	x, y, *z = zip(*batch)
-	x = jax.vmap(flax.linen.max_pool())(x)
-	flax.linen.max_pool
-	x = flax.nn.MaxPool2d(kernel_size=128 // opt.frame_size)(inp)
-
-
-	#x = tonic.collation.PadTensors(x,batch_first=True)
-
-
 
 def event_stream_collate_fn(batch, resolution, max_time=None):
 	# x are inputs, y are targets, z are aux data
@@ -342,7 +331,6 @@ def create_events_dvs_gesture_frame_classification_dataset(
 			frame_transform_time,
 		])
 		return transform, 'toframe'
-	slice_by = "event"
 	split = 0.9
 	frame_time = 25
 	transform, tr_str = get_transforms(frame_time)
@@ -367,8 +355,8 @@ def create_events_dvs_gesture_frame_classification_dataset(
 	min_time_window = 1.7 * 1e6  # 1.7 s
 	overlap = 0
 	metadata_path = f'_{min_time_window}_{overlap}_{frame_time}_' + tr_str
-	if slice_by=='event':
-		slicer_by_event = SliceByEventCount(event_count=1000,overlap=0,include_incomplete=False)
+	if slice_by=='event': #TODO - Make event based slicing trainable
+		slicer_by_event = SliceByEventCount(event_count=10000,overlap=0,include_incomplete=False)
 		train_dataset_timesliced = SlicedDataset(train_set, slicer=slicer_by_event, transform=transform,
 												metadata_path=None)
 		val_dataset_timesliced = SlicedDataset(val_set, slicer=slicer_by_event, transform=transform,
@@ -384,17 +372,23 @@ def create_events_dvs_gesture_frame_classification_dataset(
 		test_dataset_timesliced = SlicedDataset(test_dataset, slicer=slicer_by_time, transform=transform,
                                             metadata_path=None)
 	
+	else:
+		assert TypeError("unknown argument for slicer")
+	
 	if event_agg_method == 'none' or event_agg_method == 'mean':
-			data_max = 19.0  # commented to save time, re calculate if min_time_window changes
-			i=0
-			for data, _ in train_dataset_timesliced:
-				temp_max = data.max()
-				data_max = temp_max if temp_max > data_max else data_max
-				i=i+1
+			if slice_by=='time':
+				data_max = 19.0  # commented to save time, re calculate if min_time_window changes
+			else:
+				data_max = 76.0 #TODO - try not to hardcode- efficiently calculate data_max
+			# i=0
+			# for data, _ in train_dataset_timesliced:
+			# 	temp_max = data.max()
+			# 	data_max = temp_max if temp_max > data_max else data_max
+			# 	i=i+1
 			
-			for data, _ in val_dataset_timesliced:
-				temp_max = data.max()
-				data_max = temp_max if temp_max > data_max else data_max
+			# for data, _ in val_dataset_timesliced:
+			# 	temp_max = data.max()
+			# 	data_max = temp_max if temp_max > data_max else data_max
 
 			print(f'Max train value: {data_max}')
 			norm_transform = torchvision.transforms.Lambda(lambda x: x / data_max)
@@ -416,6 +410,8 @@ def create_events_dvs_gesture_frame_classification_dataset(
 												cache_path=os.path.join(cache, 'diskcache_train' + metadata_path))
 	val_cached_dataset = DiskCachedDataset(val_dataset_timesliced, transform=post_cache_transform,
 											cache_path=os.path.join(cache, 'diskcache_val' + metadata_path))
+	cached_test_dataset_time = DiskCachedDataset(test_dataset_timesliced, transform=norm_transform,
+                                                 cache_path=os.path.join(cache, 'diskcache_test' + metadata_path))	
 
 	kwargs = {'num_workers': 1, 'pin_memory': True} if torch.cuda.is_available() else {}
 
@@ -423,8 +419,6 @@ def create_events_dvs_gesture_frame_classification_dataset(
 								collate_fn=tonic.collation.PadTensors(batch_first=True), drop_last=True, **kwargs)
 	val_dataset = DataLoader(val_cached_dataset, batch_size=batch_size,
 								collate_fn=tonic.collation.PadTensors(batch_first=True), drop_last=True, **kwargs)
-	cached_test_dataset_time = DiskCachedDataset(test_dataset_timesliced, transform=norm_transform,
-                                                 cache_path=os.path.join(cache, 'diskcache_test' + metadata_path))	
 	test_dataset = DataLoader(cached_test_dataset_time, batch_size=bsz,
                                              collate_fn=tonic.collation.PadTensors(batch_first=True), drop_last=True)
 
@@ -433,7 +427,6 @@ def create_events_dvs_gesture_frame_classification_dataset(
 	print(f"Loaded test dataset with {len(test_dataset)} samples")
 	print(f"Loaded sliced test dataset with {len(cached_test_dataset_time)} samples")
     # os.makedirs(os.path.join(opt.cache, 'test'), exist_ok=True)
-
 	return Data(
 		train_dataset, val_dataset, test_dataset, aux_loaders={},
 		n_classes=11, in_dim=32768, train_pad_length=67, test_pad_length=67, train_size=len(train_dataset)

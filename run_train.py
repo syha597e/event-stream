@@ -101,6 +101,8 @@ if __name__ == "__main__":
 						help="seed randomness")
 	parser.add_argument("--use_cnn", type=str2bool, default=False,
 						help="train CNN on dvs frames. Ignore for other tasks")
+	parser.add_argument("--use_pretrained", type=str2bool, default=False,
+						help="Use pretrained resnet to train CNN on dvs frames. Ignore for other tasks")
 	parser.add_argument("--slicer_type", type=str, default="time", choices=['time',
 																			   'event'],
 						help="Opt configurations: \\ " \

@@ -139,8 +139,6 @@ def create_train_state(model_cls,
                             "dropout": dropout_rng},
                            dummy_input, integration_timesteps,
                            )
-    import pdb
-    #pdb.set_trace()
     if batchnorm:
         params = variables["params"]  #.unfreeze()
         batch_stats = variables["batch_stats"]
@@ -294,8 +292,6 @@ def prep_batch(batch: tuple,
     :param in_dim:      (int) dimension of input.
     :return:
     """
-    import pdb
-    #pdb.set_trace()
     if len(batch) == 2:
         inputs, targets = batch
         aux_data = {}
@@ -364,10 +360,7 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
     decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min = lr_params
 
     for batch_idx, batch in enumerate(tqdm(trainloader)):
-        import pdb
-        #pdb.set_trace()
         inputs, labels, integration_times = prep_batch(batch, seq_len, in_dim)
-        #pdb.set_trace()
         rng, drop_rng = jax.random.split(rng)
         state, loss = train_step(
             state,
