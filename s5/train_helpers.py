@@ -11,7 +11,7 @@ from time import time
 
 # LR schedulers
 def linear_warmup(step, base_lr, end_step, lr_min=None):
-    return base_lr * (step + 1) / (end_step+1) #FIXME - understand this
+    return base_lr * (step + 1) / end_step
 
 
 def cosine_annealing(step, base_lr, end_step, lr_min=1e-6):
