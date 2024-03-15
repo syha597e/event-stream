@@ -164,11 +164,23 @@ def create_train_state(model_cls,
                 if k in ["B", "Lambda_re", "Lambda_im", "log_step", "norm"]
                 else ("none" if k in [] else "regular")
             )
+        def opt_adamw(lr, wd):
+            return optax.chain(
+                optax.clip(1), #FIXME - hardcode
+                optax.adamw(learning_rate=lr,weight_decay=wd),
+            )
+
+        def opt_adam(lr, wd):
+            return optax.chain(
+                optax.clip(1), #FIXME - hardcode
+                optax.adam(learning_rate=lr),
+            )
+
         tx = optax.multi_transform(
             {
                 "none": optax.inject_hyperparams(optax.sgd)(learning_rate=0.0),
-                "ssm": optax.inject_hyperparams(optax.adam)(learning_rate=ssm_lr),
-                "regular": optax.inject_hyperparams(optax.adamw)(learning_rate=lr,
+                "ssm": optax.inject_hyperparams(opt_adam)(learning_rate=ssm_lr),
+                "regular": optax.inject_hyperparams(opt_adamw)(learning_rate=lr,
                                                                  weight_decay=weight_decay),
             },
             ssm_fn,
