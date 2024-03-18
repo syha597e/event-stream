@@ -77,8 +77,6 @@ if __name__ == "__main__":
 	parser.add_argument("--validate_on_test", action="store_true",
 						help="whether to validate on SHD test set or create a custom validation set by random split")
 	# DVS only
-	parser.add_argument("--refractory_period", type=int, default=0,
-						help="refractory period in micro seconds")
 	parser.add_argument("--downsampling", type=int, default=1,
 						help="resolution of the DVS sensor")
 
