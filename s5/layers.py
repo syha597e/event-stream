@@ -30,7 +30,7 @@ class EventPooling(nn.Module):
                 x = x.reshape(-1, self.stride, d_model).mean(axis=1)
                 return x, new_integration_timesteps
             elif self.mode == 'timepool':
-                weight = integration_timesteps[..., None] + self.eps
+                weight = integration_timesteps[:remaining_timesteps, None] + self.eps
                 x = (x * weight).reshape(-1, self.stride, d_model).sum(axis=1)
                 x = x / weight.reshape(-1, self.stride, 1).sum(axis=1)
                 return x, new_integration_timesteps
