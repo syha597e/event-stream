@@ -47,7 +47,10 @@ def train(args):
     # Create dataset...
     init_rng, key = random.split(init_rng, num=2)
     data = create_dataset_fn(
-        args.dir_name, seed=args.jax_seed, bsz=args.bsz,
+        args.dir_name, seed=args.jax_seed,
+        batch_size=args.batch_size,
+        eval_batch_size=args.eval_batch_size,
+        num_workers=args.num_workers,
         crop_events=args.max_events_per_sample,
         time_jitter=args.time_jitter,
         noise=args.noise,
@@ -93,7 +96,7 @@ def train(args):
     # initialize training state
     state = create_train_state(model_cls,
                                init_rng,
-                               bsz=args.bsz,
+                               bsz=args.batch_size,
                                seq_len=data.train_pad_length,
                                weight_decay=args.weight_decay,
                                batchnorm=args.batchnorm,
@@ -107,7 +110,7 @@ def train(args):
     count, best_val_loss = 0, 100000000  # This line is for early stopping purposes
     lr_count, opt_acc = 0, -100000000.0  # This line is for learning rate decay
     step = 0  # for per step learning rate decay
-    steps_per_epoch = int(data.train_size/args.bsz)
+    steps_per_epoch = int(data.train_size/args.batch_size)
     for epoch in range(args.epochs):
         print(f"[*] Starting Training Epoch {epoch + 1}...")
 

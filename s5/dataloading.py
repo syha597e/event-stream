@@ -127,26 +127,28 @@ def event_stream_collate_fn(batch, resolution, max_time=None):
 	return tokens, y, timesteps, lengths
 
 
-def event_stream_dataloader(train_data, val_data, test_data, bsz, collate_fn, rng, shuffle_training=True):
-	def dataloader(dset, shuffle):
+def event_stream_dataloader(train_data, val_data, test_data, batch_size, eval_batch_size, collate_fn, rng, num_workers=0, shuffle_training=True):
+	def dataloader(dset, bsz, shuffle, drop_last):
 		return torch.utils.data.DataLoader(
 			dset,
 			batch_size=bsz,
-			drop_last=True,
+			drop_last=drop_last,
 			collate_fn=collate_fn,
 			shuffle=shuffle,
 			generator=rng,
-			num_workers=6
+			num_workers=num_workers
 		)
-	train_loader = dataloader(train_data, shuffle=shuffle_training)
-	val_loader = dataloader(val_data, shuffle=False)
-	test_loader = dataloader(test_data, shuffle=False)
+	train_loader = dataloader(train_data, bsz=batch_size, shuffle=shuffle_training, drop_last=True)
+	val_loader = dataloader(val_data, bsz=eval_batch_size, shuffle=False, drop_last=False)
+	test_loader = dataloader(test_data, bsz=eval_batch_size, shuffle=False, drop_last=False)
 	return train_loader, val_loader, test_loader
 
 
 def create_events_shd_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
-		bsz: int = 50,
+		batch_size: int = 32,
+		eval_batch_size: int = 64,
+		num_workers: int = 0,
 		seed: int = 42,
 		time_jitter: float = 100,
 		noise: int = 100,
@@ -194,7 +196,8 @@ def create_events_shd_classification_dataset(
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
 		collate_fn=partial(event_stream_collate_fn, resolution=(700,)),
-		bsz=bsz, rng=rng, shuffle_training=True
+		batch_size=batch_size, eval_batch_size=eval_batch_size,
+		rng=rng, num_workers=num_workers, shuffle_training=True
 	)
 
 	return Data(
@@ -204,7 +207,9 @@ def create_events_shd_classification_dataset(
 
 def create_events_ssc_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
-		bsz: int = 50,
+		batch_size: int = 32,
+		eval_batch_size: int = 64,
+		num_workers: int = 0,
 		seed: int = 42,
 		time_jitter: float = 100,
 		noise: int = 100,
@@ -241,7 +246,8 @@ def create_events_ssc_classification_dataset(
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
 		collate_fn=partial(event_stream_collate_fn, resolution=(700,)),
-		bsz=bsz, rng=rng, shuffle_training=True
+		batch_size=batch_size, eval_batch_size=eval_batch_size,
+		rng=rng, num_workers=num_workers, shuffle_training=True
 	)
 
 	return Data(
@@ -252,7 +258,9 @@ def create_events_ssc_classification_dataset(
 
 def create_events_dvs_gesture_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
-		bsz: int = 50,
+		batch_size: int = 32,
+		eval_batch_size: int = 64,
+		num_workers: int = 0,
 		seed: int = 42,
 		crop_events: int = None,
 		time_jitter: float = 100,
@@ -313,7 +321,8 @@ def create_events_dvs_gesture_classification_dataset(
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
 		collate_fn=partial(event_stream_collate_fn, resolution=new_sensor_size[:2]),
-		bsz=bsz, rng=rng, shuffle_training=True
+		batch_size=batch_size, eval_batch_size=eval_batch_size,
+		rng=rng, num_workers=num_workers, shuffle_training=True
 	)
 
 	return Data(

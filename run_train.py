@@ -63,6 +63,8 @@ if __name__ == "__main__":
 						help="Expands the state in pooling layers by this factor")
 
 	# Data options
+	parser.add_argument("--num_workers", type=int, default=6,
+						help="number of workers for data loading")
 	parser.add_argument("--max_events_per_sample", type=int, default=None,
 						help="Default number of events padded to in each sequence")
 	parser.add_argument("--time_jitter", type=float, default=100,
@@ -87,8 +89,10 @@ if __name__ == "__main__":
 						help="True: use batchnorm, False: use layernorm")
 	parser.add_argument("--bn_momentum", type=float, default=0.95,
 						help="batchnorm momentum")
-	parser.add_argument("--bsz", type=int, default=64,
-						help="batch size")
+	parser.add_argument("--batch_size", type=int, default=64,
+						help="batch size for training")
+	parser.add_argument("--eval_batch_size", type=int, default=64,
+						help="batch size for evaluation and testing")
 	parser.add_argument("--epochs", type=int, default=100,
 						help="max number of epochs")
 	parser.add_argument("--early_stop_patience", type=int, default=1000,
