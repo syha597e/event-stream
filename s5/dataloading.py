@@ -1,11 +1,12 @@
 import torch
 from pathlib import Path
-import os
 from typing import Callable, Optional, TypeVar, Dict, Tuple, List, Union
 import tonic
 from functools import partial
 from torch.nn.functional import pad
 import numpy as np
+import jax
+import jax.numpy as jnp
 from s5.transform import CropEvents, Identity
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
@@ -117,7 +118,13 @@ def event_stream_collate_fn(batch, resolution, max_time=None):
 	tokens = torch.stack([pad(e, (0, max_length - l), 'constant', -1) for e, l in zip(tokens, lengths)])
 
 	y = torch.tensor(y).int()
-	return tokens, y, {'timesteps': timesteps, 'lengths': lengths}
+
+	tokens = tokens.numpy()
+	y = y.numpy()
+	timesteps = timesteps.numpy()
+	lengths = lengths.numpy()
+
+	return tokens, y, timesteps, lengths
 
 
 def event_stream_dataloader(train_data, val_data, test_data, bsz, collate_fn, rng, shuffle_training=True):
@@ -317,64 +324,7 @@ def create_events_dvs_gesture_classification_dataset(
 		n_classes=11, in_dim=np.prod(new_sensor_size), train_pad_length=crop_events, test_pad_length=1595392, train_size=len(train_data)
 	)
 
-
-def create_speechcommands35_classification_dataset(
-		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
-		bsz: int = 50,
-		seed: int = 42,
-		**kwargs
-) -> Data:
-	"""
-	AG inexplicably moved away from using a cache dir...  Grumble.
-	The `cache_dir` will effectively be ./raw_datasets/speech_commands/0.0.2 .
-
-	See abstract template.
-	"""
-	print("[*] Generating SpeechCommands35 Classification Dataset")
-	from s5.dataloaders.basic import SpeechCommands
-	name = 'sc'
-
-	dir_name = f'./raw_datasets/speech_commands/0.0.2/'
-	os.makedirs(dir_name, exist_ok=True)
-
-	kwargs = {
-		'all_classes': True,
-		'sr': 1  # Set the subsampling rate.
-	}
-	dataset_obj = SpeechCommands(name, data_dir=dir_name, **kwargs)
-	dataset_obj.setup()
-	trn_loader = make_data_loader(dataset_obj.dataset_train, dataset_obj, seed=seed, batch_size=bsz)
-	val_loader = make_data_loader(dataset_obj.dataset_val, dataset_obj, seed=seed, batch_size=bsz, drop_last=False, shuffle=False)
-	tst_loader = make_data_loader(dataset_obj.dataset_test, dataset_obj, seed=seed, batch_size=bsz, drop_last=False, shuffle=False)
-
-	N_CLASSES = dataset_obj.d_output
-	SEQ_LENGTH = dataset_obj.dataset_train.tensors[0].shape[1]
-	IN_DIM = 1
-	TRAIN_SIZE = dataset_obj.dataset_train.tensors[0].shape[0]
-
-	# Also make the half resolution dataloader.
-	kwargs['sr'] = 2
-	dataset_obj = SpeechCommands(name, data_dir=dir_name, **kwargs)
-	dataset_obj.setup()
-	val_loader_2 = make_data_loader(dataset_obj.dataset_val, dataset_obj, seed=seed, batch_size=bsz, drop_last=False, shuffle=False)
-	tst_loader_2 = make_data_loader(dataset_obj.dataset_test, dataset_obj, seed=seed, batch_size=bsz, drop_last=False, shuffle=False)
-
-	aux_loaders = {
-		'valloader2': val_loader_2,
-		'testloader2': tst_loader_2,
-	}
-
-	return Data(
-		trn_loader, val_loader, tst_loader, aux_loaders=aux_loaders,
-		n_classes=N_CLASSES, in_dim=IN_DIM, train_pad_length=SEQ_LENGTH, test_pad_length=SEQ_LENGTH, train_size=TRAIN_SIZE
-	)
-
-
 Datasets = {
-	# Speech.
-	"speech35-classification": create_speechcommands35_classification_dataset,
-
-	# Events
 	"shd-classification": create_events_shd_classification_dataset,
 	"ssc-classification": create_events_ssc_classification_dataset,
 	"dvs-gesture-classification": create_events_dvs_gesture_classification_dataset,
