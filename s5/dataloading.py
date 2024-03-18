@@ -5,8 +5,6 @@ import tonic
 from functools import partial
 from torch.nn.functional import pad
 import numpy as np
-import jax
-import jax.numpy as jnp
 from s5.transform import CropEvents, Identity
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
@@ -172,11 +170,13 @@ def create_events_shd_classification_dataset(
 	else:
 		rng = None
 
+	sensor_size = (700, 1, 1)
+
 	transforms = tonic.transforms.Compose([
 		tonic.transforms.DropEvent(p=drop_event),
 		tonic.transforms.TimeSkew(coefficient=(1 / time_skew, time_skew), offset=0),
 		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
-		tonic.transforms.UniformNoise(sensor_size=(128, 128, 2), n=(0, noise))
+		tonic.transforms.UniformNoise(sensor_size=sensor_size, n=(0, noise))
 	])
 
 	train_data = tonic.datasets.SHD(save_to=cache_dir, train=True, transform=transforms)
@@ -232,11 +232,13 @@ def create_events_ssc_classification_dataset(
 	else:
 		rng = None
 
+	sensor_size = (700, 1, 1)
+
 	transforms = tonic.transforms.Compose([
 		tonic.transforms.DropEvent(p=drop_event),
 		tonic.transforms.TimeSkew(coefficient=(1 / time_skew, time_skew), offset=0),
 		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
-		tonic.transforms.UniformNoise(sensor_size=(128, 128, 2), n=(0, noise))
+		tonic.transforms.UniformNoise(sensor_size=sensor_size, n=(0, noise))
 	])
 
 	train_data = tonic.datasets.SSC(save_to=cache_dir, split='train', transform=transforms)
