@@ -256,7 +256,6 @@ def create_events_dvs_gesture_classification_dataset(
 		seed: int = 42,
 		crop_events: int = None,
 		time_jitter: float = 100,
-		refractory_period: int = 0,
 		noise: int = 100,
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
@@ -288,7 +287,6 @@ def create_events_dvs_gesture_classification_dataset(
 		tonic.transforms.DropEvent(p=drop_event),
 		tonic.transforms.TimeSkew(coefficient=(1 / time_skew, time_skew), offset=0),
 		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
-		tonic.transforms.RefractoryPeriod(delta=refractory_period) if refractory_period > 0 else Identity(),
 		tonic.transforms.SpatialJitter(sensor_size=orig_sensor_size, var_x=1, var_y=1, clip_outliers=True),
 		tonic.transforms.Downsample(spatial_factor=downsampling) if downsampling > 1 else Identity(),
 		tonic.transforms.DropEventByArea(sensor_size=new_sensor_size, area_ratio=(0.05, 0.2)),
@@ -309,7 +307,6 @@ def create_events_dvs_gesture_classification_dataset(
 
 	test_transforms = tonic.transforms.Compose([
 		tonic.transforms.Downsample(spatial_factor=downsampling) if downsampling > 1 else Identity(),
-		tonic.transforms.RefractoryPeriod(delta=refractory_period) if refractory_period > 0 else Identity()
 	])
 	test_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=False, transform=test_transforms)
 
@@ -321,7 +318,7 @@ def create_events_dvs_gesture_classification_dataset(
 
 	return Data(
 		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=11, in_dim=128 * 128 * 2, train_pad_length=crop_events, test_pad_length=1595392, train_size=len(train_data)
+		n_classes=11, in_dim=np.prod(new_sensor_size), train_pad_length=crop_events, test_pad_length=1595392, train_size=len(train_data)
 	)
 
 Datasets = {
