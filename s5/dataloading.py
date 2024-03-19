@@ -479,8 +479,6 @@ def create_speechcommands35_classification_dataset(
 		'valloader2': val_loader_2,
 		'testloader2': tst_loader_2,
 	}
-	import pdb
-	pdb.set_trace()
 	return Data(
 		trn_loader, val_loader, tst_loader, aux_loaders=aux_loaders,
 		n_classes=N_CLASSES, in_dim=IN_DIM, train_pad_length=SEQ_LENGTH, test_pad_length=SEQ_LENGTH, train_size=TRAIN_SIZE

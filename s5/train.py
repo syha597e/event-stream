@@ -11,6 +11,9 @@ from .seq_model import BatchClassificationModel, RetrievalModel
 from .ssm import init_S5SSM
 from .ssm_init import make_DPLR_HiPPO
 
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 def train(args):
     """
     Main function to train over a certain number of epochs
@@ -223,7 +226,8 @@ def train(args):
                                               data.train_pad_length,
                                               data.in_dim,
                                               args.batchnorm,
-                                              lr_params)
+                                              lr_params,
+                                              args.use_pretrained)
 
         if data.val_loader is not None:
             print(f"[*] Running Epoch {epoch + 1} Validation...")

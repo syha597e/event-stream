@@ -361,7 +361,7 @@ def prep_batch(batch: tuple,
     return full_inputs, targets.astype(float), integration_timesteps
 
 
-def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_params):
+def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_params,use_pretrained):
     """
     Training function for an epoch that loops over batches.
     """
@@ -382,6 +382,7 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
             integration_times,
             model,
             batchnorm,
+            use_pretrained,
         )
         batch_losses.append(loss)
         lr_params = (decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min)
@@ -413,11 +414,19 @@ def train_step(state,
                batch_integration_timesteps,
                model,
                batchnorm,
+               use_pretrained
                ):
     """Performs a single training step given a batch of data"""
     def loss_fn(params):
 
         if batchnorm:
+            logits, mod_vars = model.apply(
+                {"params": params, "batch_stats": state.batch_stats},
+                batch_inputs, batch_integration_timesteps,
+                rngs={"dropout": rng},
+                mutable=["intermediates", "batch_stats"],
+            )
+        elif use_pretrained:
             logits, mod_vars = model.apply(
                 {"params": params, "batch_stats": state.batch_stats},
                 batch_inputs, batch_integration_timesteps,
