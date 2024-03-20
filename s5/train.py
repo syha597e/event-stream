@@ -223,8 +223,8 @@ def train(args):
                                               data.train_pad_length,
                                               data.in_dim,
                                               args.batchnorm,
-                                              lr_params,
-                                              args.use_pretrained)
+                                              lr_params
+                                              )
 
         if data.val_loader is not None:
             print(f"[*] Running Epoch {epoch + 1} Validation...")
