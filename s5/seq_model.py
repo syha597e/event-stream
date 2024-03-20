@@ -47,8 +47,11 @@ class StackedEncoderModel(nn.Module):
         """
         Initializes a linear encoder and the stack of S5 layers.
         """
-        assert self.num_embeddings > 0
-        self.encoder = nn.Embed(num_embeddings=self.num_embeddings, features=self.d_model)
+        # assert self.num_embeddings > 0
+        if self.num_embeddings == 0:
+            self.encoder = nn.Dense(self.d_model)
+        else:
+            self.encoder = nn.Embed(num_embeddings=self.num_embeddings, features=self.d_model)
 
         # generate strides for the model
         layers = []
@@ -98,7 +101,9 @@ class StackedEncoderModel(nn.Module):
         Returns:
             output sequence (float32): (L, d_model)
         """
+
         x = self.encoder(x)
+
         for i, layer in enumerate(self.layers):
             # apply layer SSM
             x, integration_timesteps = layer(x, integration_timesteps)

@@ -36,11 +36,14 @@ def train(args):
 
     # Get dataset creation function
     create_dataset_fn = Datasets[args.dataset]
-
+    num_d_model = 0
     if args.dataset in ["shd-classification", "ssc-classification"]:
         num_embeddings = 700
     elif args.dataset in ["dvs-gesture-classification"]:
         num_embeddings = (128 // args.downsampling) * (128 // args.downsampling) * 2
+    elif args.dataset in ["shd-frame-classification", "ssc-frame-classification"]:
+        num_embeddings = 0
+        num_d_model = 700
     else:
         raise NotImplementedError(f"Dataset {args.dataset} not implemented")
 
@@ -57,7 +60,8 @@ def train(args):
         drop_event=args.drop_event,
         time_skew=args.time_skew,
         downsampling=args.downsampling,
-        validate_on_test=args.validate_on_test
+        validate_on_test=args.validate_on_test,
+        time_window=args.time_window
     )
 
     print(f"[*] Starting S5 Training on `{args.dataset}` =>> Initializing...")
@@ -98,6 +102,7 @@ def train(args):
                                init_rng,
                                bsz=args.batch_size,
                                seq_len=data.train_pad_length,
+                               d_model=num_d_model,
                                weight_decay=args.weight_decay,
                                batchnorm=args.batchnorm,
                                opt_config=args.opt_config,

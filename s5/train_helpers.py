@@ -83,6 +83,7 @@ def create_train_state(model_cls,
                        rng,
                        bsz=128,
                        seq_len=784,
+                       d_model=0,
                        weight_decay=0.01,
                        batchnorm=False,
                        opt_config="standard",
@@ -105,10 +106,12 @@ def create_train_state(model_cls,
     :param dt_global:
     :return:
     """
-
-    inputs = np.ones((bsz, seq_len), dtype=np.int32)
-    lengths = np.ones(bsz, dtype=np.int32)
-
+    if d_model == 0:
+        inputs = np.ones((bsz, seq_len), dtype=np.int32)
+        lengths = np.ones(bsz, dtype=np.int32)
+    else:
+        inputs = np.ones((bsz, seq_len, d_model), dtype=np.int32)
+        lengths = np.ones(bsz, dtype=np.int32)
     dummy_input = (inputs, lengths)
     integration_timesteps = np.ones((bsz, seq_len,))
 
@@ -279,8 +282,11 @@ def prep_batch(batch: tuple, seq_len: int) -> Tuple[Tuple[np.ndarray, np.ndarray
     # Make all batches have same sequence length
     num_pad = seq_len - inputs.shape[1]
     if num_pad > 0:
-        inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(-1,))
-
+        if len(inputs.shape) == 2:
+            inputs = np.pad(inputs, ((0, 0), (0, num_pad)), 'constant', constant_values=(-1,))
+        elif len(inputs.shape) == 3:
+            inputs = np.pad(inputs, ((0, 0), (0, num_pad), (0,0)), 'constant', constant_values=(0,))
+            
     # subtract 1 as the sequence lengths is reduced by one through taking differences of time stamps
     lengths = np.clip(lengths - 1, a_min=0, a_max=seq_len)
 
