@@ -298,7 +298,7 @@ def create_frame_shd_classification_dataset(
 
 	return Data(
 		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=20, in_dim=700, train_pad_length=512, test_pad_length=512, train_size=len(train_data)
+		n_classes=20, in_dim=700, train_pad_length=512*10000//time_window, test_pad_length=512*10000//time_window, train_size=len(train_data)
 	)
 
 
@@ -404,7 +404,7 @@ def create_frame_ssc_classification_dataset(
 
 	return Data(
 		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=35, in_dim=700, train_pad_length=512, test_pad_length=512, train_size=len(train_data)
+		n_classes=35, in_dim=700, train_pad_length=512*10000//time_window, test_pad_length=512*10000//time_window, train_size=len(train_data)
 	)
 def create_events_dvs_gesture_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
