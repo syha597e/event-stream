@@ -4,7 +4,6 @@ from flax import linen as nn
 from .layers import SequenceLayer
 from typing import Callable
 from functools import partial
-from jax_resnet import pretrained_resnet, slice_variables, Sequential
 from flax.core import FrozenDict, frozen_dict
 from transformers import FlaxResNetModel
 
