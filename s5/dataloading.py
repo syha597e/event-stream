@@ -422,26 +422,26 @@ def create_events_dvs_gesture_frame_classification_dataset(
         slicer_by_event = SliceByEventCount(
             event_count=1000, overlap=0, include_incomplete=False
         )
-        train_dataset_timesliced = SlicedDataset(
+        train_dataset_sliced = SlicedDataset(
             train_set, slicer=slicer_by_event, transform=None, metadata_path=None
         )
-        val_dataset_timesliced = SlicedDataset(
+        val_dataset_sliced = SlicedDataset(
             val_set, slicer=slicer_by_event, transform=None, metadata_path=None
         )
-        test_dataset_timesliced = SlicedDataset(
+        test_dataset_sliced = SlicedDataset(
             test_dataset, slicer=slicer_by_event, transform=None, metadata_path=None
         )
     elif slice_by == "time":
         slicer_by_time = SliceByTime(
             time_window=min_time_window, overlap=overlap, include_incomplete=False
         )
-        train_dataset_timesliced = SlicedDataset(
+        train_dataset_sliced = SlicedDataset(
             train_set, slicer=slicer_by_time, transform=transform, metadata_path=None
         )
-        val_dataset_timesliced = SlicedDataset(
+        val_dataset_sliced = SlicedDataset(
             val_set, slicer=slicer_by_time, transform=transform, metadata_path=None
         )
-        test_dataset_timesliced = SlicedDataset(
+        test_dataset_sliced = SlicedDataset(
             test_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None
         )
 
@@ -489,17 +489,17 @@ def create_events_dvs_gesture_frame_classification_dataset(
     else:
         post_cache_transform = norm_transform
     train_cached_dataset = DiskCachedDataset(
-        train_dataset_timesliced,
+        train_dataset_sliced,
         transform=post_cache_transform,
         cache_path=os.path.join(cache, "diskcache_train" + metadata_path),
     )
     val_cached_dataset = DiskCachedDataset(
-        val_dataset_timesliced,
+        val_dataset_sliced,
         transform=post_cache_transform,
         cache_path=os.path.join(cache, "diskcache_val" + metadata_path),
     )
     cached_test_dataset_time = DiskCachedDataset(
-        test_dataset_timesliced,
+        test_dataset_sliced,
         transform=norm_transform,
         cache_path=os.path.join(cache, "diskcache_test" + metadata_path),
     )
@@ -542,7 +542,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
         in_dim=32768,
         train_pad_length=67,
         test_pad_length=67,
-        train_size=len(train_dataset),
+        train_size=len(train_dataset)*batch_size,
     )
 
 

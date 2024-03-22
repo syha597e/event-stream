@@ -93,7 +93,6 @@ def train(args):
                 args.dir_name, seed=args.jax_seed, bsz=args.bsz,
                 crop_events=args.max_events_per_sample
             )
-
     print(f"[*] Starting S5 Training on `{args.dataset}` =>> Initializing...")
 
     # Initialize state matrix A using approximation to HiPPO-LegS matrix

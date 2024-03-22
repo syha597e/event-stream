@@ -6,6 +6,7 @@ from typing import Callable
 from functools import partial
 from jax_resnet import pretrained_resnet, slice_variables, Sequential
 from flax.core import FrozenDict, frozen_dict
+from transformers import FlaxResNetModel
 
 
 def prep_image_for_transferlearning(image, pad_size):
@@ -26,7 +27,7 @@ def prep_image_for_transferlearning(image, pad_size):
     # Pad image
     padded_image = np.pad(image, pad_width, mode="constant")
     padded_image = np.repeat(padded_image[:, :, np.newaxis, :], 3, axis=2)
-    return padded_image.reshape(1, 224, 224, 3)
+    return padded_image.reshape(1,3,224, 224)
 
 
 def merge_events(data, method="mean", flatten=False):
@@ -43,22 +44,19 @@ def merge_events(data, method="mean", flatten=False):
 
 class CNNModule(nn.Module):
     @nn.compact
-    def __call__(self, x, pretrained=False):
+    def __call__(self, x, pretrained=False,train_backbone=False):
         if pretrained:
             x = prep_image_for_transferlearning(x, (48, 48))
-            x = x.reshape(1, 224, 224, 3)
-            # model, variables = get_model_and_variables('resnet50', 0)
-            # out,batch_stats = model.apply({'params': variables['params'],'batch_stats': variables['batch_stats']},x, train=True,rngs={'dropout': jax.random.PRNGKey(0)}, mutable='batch_stats')
-            resnet_tmpl, params = pretrained_resnet(50)
-            resnet_head = resnet_tmpl()
-            start, end = 0, len(resnet_head.layers) - 1
-            backbone = Sequential(resnet_head.layers[start:end])
-            backbone_params = slice_variables(params, start, end)
-            out = backbone.apply(backbone_params, x, mutable=False)
-            # out = backbone(x,training=False)
+            resnet_backbone = FlaxResNetModel.from_pretrained("microsoft/resnet-50",from_pt=True) #use-pretrained-model-weights
+            outputs = resnet_backbone(x,train=train_backbone)
+            if train_backbone:
+                out = outputs[0].pooler_output
+            else:
+                out = outputs.pooler_output
             return out.reshape(
                 -1,
             )
+
 
         else:
             x = nn.Conv(features=64, kernel_size=(11, 11), strides=4, padding=2)(x)
