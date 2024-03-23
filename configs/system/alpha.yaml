@@ -1,0 +1,5 @@
+# @package _global_
+
+data_dir: ???
+output_dir: ???/${task.name}
+num_devices: 1

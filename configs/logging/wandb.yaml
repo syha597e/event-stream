@@ -1,0 +1,5 @@
+log_dir: ${output_dir}
+interval: 99999999
+wandb: True
+project: event-stream-classification
+entity: evnn-neurips

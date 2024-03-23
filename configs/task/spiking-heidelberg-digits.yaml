@@ -1,0 +1,28 @@
+# @package _global_
+defaults:
+  - /model: shd/medium
+
+task:
+  name: shd-classification
+
+training:
+  num_epochs: 30
+  per_device_batch_size: 64
+  num_workers: 6
+  time_jitter: 900
+  noise: 35
+  drop_event: 0.1
+  time_skew: 1.12
+  pad_unit: 8192
+  validate_on_test: true
+
+validation:
+  per_device_batch_size: 128
+
+optimizer:
+  ssm_lr: 1e-3
+  lr_factor: 4
+  warmup_epochs: 3
+  ssm_weight_decay: 0.0
+  weight_decay: 1e-2
+  schedule: cosine

@@ -5,7 +5,8 @@ import tonic
 from functools import partial
 from torch.nn.functional import pad
 import numpy as np
-from s5.transform import CropEvents, Identity
+import jax
+from event_ssm.transform import CropEvents, Identity
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
@@ -16,113 +17,47 @@ InputType = [str, Optional[int], Optional[int]]
 class Data:
 	def __init__(
 			self,
-			train_loader: DataLoader,
-			val_loader: DataLoader,
-			test_loader: DataLoader,
-			aux_loaders: Dict,
 			n_classes: int,
-			train_pad_length: int,
-			test_pad_length: int,
-			in_dim: int,
+			num_embeddings: int,
 			train_size: int
 ):
-		self.train_loader = train_loader
-		self.val_loader = val_loader
-		self.test_loader = test_loader
-		self.aux_loaders = aux_loaders
 		self.n_classes = n_classes
-		self.train_pad_length = train_pad_length
-		self.test_pad_length = test_pad_length
-		self.in_dim = in_dim
+		self.num_embeddings = num_embeddings
 		self.train_size = train_size
 
 
-# Custom loading functions must therefore have the template.
-dataset_fn = Callable[[str, Optional[int], Optional[int]], Data]
-
-
-# Example interface for making a loader.
-def custom_loader(cache_dir: str,
-				  bsz: int = 50,
-				  seed: int = 42) -> Data:
-	...
-
-
-def make_data_loader(dset,
-					 dobj,
-					 seed: int,
-					 batch_size: int=128,
-					 shuffle: bool=True,
-					 drop_last: bool=True,
-					 collate_fn: callable=None):
-	"""
-
-	:param dset: 			(PT dset):		PyTorch dataset object.
-	:param dobj (=None): 	(AG data): 		Dataset object, as returned by A.G.s dataloader.
-	:param seed: 			(int):			Int for seeding shuffle.
-	:param batch_size: 		(int):			Batch size for batches.
-	:param shuffle:         (bool):			Shuffle the data loader?
-	:param drop_last: 		(bool):			Drop ragged final batch (particularly for training).
-	:return:
-	"""
-
-	# Create a generator for seeding random number draws.
-	if seed is not None:
-		rng = torch.Generator()
-		rng.manual_seed(seed)
-	else:
-		rng = None
-
-	if dobj is not None:
-		assert collate_fn is None
-		collate_fn = dobj._collate_fn
-
-	# Generate the dataloaders.
-	return torch.utils.data.DataLoader(dataset=dset, collate_fn=collate_fn, batch_size=batch_size, shuffle=shuffle,
-									   drop_last=drop_last, generator=rng)
-
-
-def event_stream_collate_fn(batch, resolution, max_time=None):
+def event_stream_collate_fn(batch, resolution, pad_unit):
 	# x are inputs, y are targets, z are aux data
 	x, y, *z = zip(*batch)
 	assert len(z) == 0
 
-	# set tonic specific items
-	timesteps = [torch.tensor(e['t'].copy()) for e in x]
+	# integration time steps are the difference between two consequtive time stamps
+	timesteps = [np.diff(e['t']) for e in x]
+
+	# NOTE: since timesteps are deltas, their length is L - 1, and we have to remove the last token in the following
 
 	# process tokens for single input dim (e.g. audio)
 	if len(resolution) == 1:
-		tokens = [torch.tensor(e['x']).int() for e in x]
+		tokens = [e['x'][:-1].astype(np.int32) for e in x]
 	elif len(resolution) == 2:
-		tokens = [torch.tensor(e['x'] * e['y'] + np.prod(resolution) * e['p'].astype(np.int32)).int() for e in x]
+		tokens = [(e['x'][:-1] * e['y'][:-1] + np.prod(resolution) * e['p'][:-1].astype(np.int32)).astype(np.int32) for e in x]
 	else:
 		raise ValueError('resolution must contain 1 or 2 elements')
 
-	# drop of events later than max_time
-	if max_time is not None:
-		mask = [e <= max_time for e in timesteps]
-		timesteps = [e[m] for e, m in zip(timesteps, mask)]
-		tokens = [e[m] for e, m in zip(tokens, mask)]
+	# get padding lengths
+	lengths = np.array([len(e) for e in timesteps], dtype=np.int32)
+	pad_length = (lengths.max() // pad_unit) * pad_unit + pad_unit
 
-	# pad time steps with final time-step -> this is a bit of a hack to make the integration time steps 0
-	lengths = torch.tensor([len(e) for e in timesteps], dtype=torch.long)
-	max_length = lengths.max().item()
-	timesteps = torch.stack([pad(e, (0, max_length - l), 'constant', e[-1]) for e, l in zip(timesteps, lengths)])
+	# pad tokens with -1, which results in a zero vector with embedding look-ups
+	tokens = np.stack(
+		[np.pad(e, (0, pad_length - len(e)), mode='constant', constant_values=-1) for e in tokens])
+	timesteps = np.stack(
+		[np.pad(e, (0, pad_length - len(e)), mode='constant', constant_values=0) for e in timesteps])
 
 	# timesteps are in micro seconds... transform to milliseconds
 	timesteps = timesteps / 1000
 
-	# pad tokens with -1, which results in a zero vector with jax.nn.one_hot
-	tokens = torch.stack([pad(e, (0, max_length - l), 'constant', -1) for e, l in zip(tokens, lengths)])
-
-	y = torch.tensor(y).int()
-
-	tokens = tokens.numpy()
-	y = y.numpy()
-	timesteps = timesteps.numpy()
-	lengths = lengths.numpy()
-
-	return tokens, y, timesteps, lengths
+	return tokens, np.array(y), timesteps, lengths
 
 
 def event_stream_dataloader(train_data, val_data, test_data, batch_size, eval_batch_size, collate_fn, rng, num_workers=0, shuffle_training=True):
@@ -152,9 +87,10 @@ def create_events_shd_classification_dataset(
 		noise: int = 100,
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
+		pad_unit: int = 8192,
 		validate_on_test: bool = False,
 		**kwargs
-) -> Data:
+) -> Tuple[DataLoader, DataLoader, DataLoader, Data]:
 	"""
 	creates a view of the spiking heidelberg digits dataset
 
@@ -195,15 +131,14 @@ def create_events_shd_classification_dataset(
 
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=(700,)),
+		collate_fn=partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit),
 		batch_size=batch_size, eval_batch_size=eval_batch_size,
 		rng=rng, num_workers=num_workers, shuffle_training=True
 	)
-
-	return Data(
-		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=20, in_dim=700, train_pad_length=16384, test_pad_length=16384, train_size=len(train_data)
+	data = Data(
+		n_classes=20, num_embeddings=700, train_size=len(train_data)
 	)
+	return train_loader, val_loader, test_loader, data
 
 def create_events_ssc_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
@@ -215,8 +150,9 @@ def create_events_ssc_classification_dataset(
 		noise: int = 100,
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
+		pad_unit: int = 8192,
 		**kwargs
-) -> Data:
+) -> Tuple[DataLoader, DataLoader, DataLoader, Data]:
 	"""
 	creates a view of the spiking speech commands dataset
 
@@ -247,15 +183,16 @@ def create_events_ssc_classification_dataset(
 
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=(700,)),
+		collate_fn=partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit),
 		batch_size=batch_size, eval_batch_size=eval_batch_size,
 		rng=rng, num_workers=num_workers, shuffle_training=True
 	)
 
-	return Data(
-		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=35, in_dim=700, train_pad_length=20480, test_pad_length=20480, train_size=len(train_data)
+	data = Data(
+		n_classes=35, num_embeddings=700, train_size=len(train_data)
 	)
+	return train_loader, val_loader, test_loader, data
+
 
 
 def create_events_dvs_gesture_classification_dataset(
@@ -270,8 +207,9 @@ def create_events_dvs_gesture_classification_dataset(
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
 		downsampling: int = 1,
+		pad_unit: int = 2 ** 19,
 		**kwargs
-) -> Data:
+) -> Tuple[DataLoader, DataLoader, DataLoader, Data]:
 	"""
 	creates a view of the DVS Gesture dataset
 
@@ -322,15 +260,16 @@ def create_events_dvs_gesture_classification_dataset(
 
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=new_sensor_size[:2]),
+		collate_fn=partial(event_stream_collate_fn, resolution=new_sensor_size[:2], pad_unit=pad_unit if crop_events is None else crop_events),
 		batch_size=batch_size, eval_batch_size=eval_batch_size,
 		rng=rng, num_workers=num_workers, shuffle_training=True
 	)
 
-	return Data(
-		train_loader, val_loader, test_loader, aux_loaders={},
-		n_classes=11, in_dim=np.prod(new_sensor_size), train_pad_length=crop_events, test_pad_length=1595392, train_size=len(train_data)
+	data = Data(
+		n_classes=11, num_embeddings=np.prod(new_sensor_size), train_size=len(train_data)
 	)
+	return train_loader, val_loader, test_loader, data
+
 
 Datasets = {
 	"shd-classification": create_events_shd_classification_dataset,
