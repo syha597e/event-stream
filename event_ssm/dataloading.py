@@ -31,6 +31,9 @@ def event_stream_collate_fn(batch, resolution, pad_unit):
 	x, y, *z = zip(*batch)
 	assert len(z) == 0
 
+	# set labels to numpy array
+	y = np.array(y)
+
 	# integration time steps are the difference between two consequtive time stamps
 	timesteps = [np.diff(e['t']) for e in x]
 
@@ -57,7 +60,7 @@ def event_stream_collate_fn(batch, resolution, pad_unit):
 	# timesteps are in micro seconds... transform to milliseconds
 	timesteps = timesteps / 1000
 
-	return tokens, np.array(y), timesteps, lengths
+	return tokens, y, timesteps, lengths
 
 
 def event_stream_dataloader(train_data, val_data, test_data, batch_size, eval_batch_size, train_collate_fn, eval_collate_fn, rng, num_workers=0, shuffle_training=True):
@@ -72,7 +75,7 @@ def event_stream_dataloader(train_data, val_data, test_data, batch_size, eval_ba
 			num_workers=num_workers
 		)
 	train_loader = dataloader(train_data, batch_size, train_collate_fn, shuffle=shuffle_training, drop_last=True)
-	val_loader = dataloader(val_data, eval_batch_size, eval_collate_fn, shuffle=False, drop_last=False)
+	val_loader = dataloader(val_data, eval_batch_size, eval_collate_fn, shuffle=False, drop_last=True)
 	test_loader = dataloader(test_data, eval_batch_size, eval_collate_fn, shuffle=False, drop_last=False)
 	return train_loader, val_loader, test_loader
 
@@ -81,6 +84,7 @@ def create_events_shd_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
 		per_device_batch_size: int = 32,
 		per_device_eval_batch_size: int = 64,
+		world_size: int = 1,
 		num_workers: int = 0,
 		seed: int = 42,
 		time_jitter: float = 100,
@@ -134,7 +138,7 @@ def create_events_shd_classification_dataset(
 		train_data, val_data, test_data,
 		train_collate_fn=collate_fn,
 		eval_collate_fn=collate_fn,
-		batch_size=per_device_batch_size, eval_batch_size=per_device_eval_batch_size,
+		batch_size=per_device_batch_size * world_size, eval_batch_size=per_device_eval_batch_size * world_size,
 		rng=rng, num_workers=num_workers, shuffle_training=True
 	)
 	data = Data(
@@ -146,6 +150,7 @@ def create_events_ssc_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
 		per_device_batch_size: int = 32,
 		per_device_eval_batch_size: int = 64,
+		world_size: int = 1,
 		num_workers: int = 0,
 		seed: int = 42,
 		time_jitter: float = 100,
@@ -188,7 +193,7 @@ def create_events_ssc_classification_dataset(
 		train_data, val_data, test_data,
 		train_collate_fn=collate_fn,
 		eval_collate_fn=collate_fn,
-		batch_size=per_device_batch_size, eval_batch_size=per_device_eval_batch_size,
+		batch_size=per_device_batch_size * world_size, eval_batch_size=per_device_eval_batch_size * world_size,
 		rng=rng, num_workers=num_workers, shuffle_training=True
 	)
 
@@ -203,6 +208,7 @@ def create_events_dvs_gesture_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
 		per_device_batch_size: int = 32,
 		per_device_eval_batch_size: int = 64,
+		world_size: int = 1,
 		num_workers: int = 0,
 		seed: int = 42,
 		crop_events: int = None,
@@ -266,18 +272,18 @@ def create_events_dvs_gesture_classification_dataset(
 	train_collate_fn = partial(
 			event_stream_collate_fn,
 			resolution=new_sensor_size[:2],
-			pad_unit=pad_unit if crop_events is None else crop_events
+			pad_unit=pad_unit if crop_events is None else crop_events,
 		)
 	eval_collate_fn = partial(
 			event_stream_collate_fn,
 			resolution=new_sensor_size[:2],
-			pad_unit=pad_unit
+			pad_unit=pad_unit,
 		)
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
 		train_collate_fn=train_collate_fn,
 		eval_collate_fn=eval_collate_fn,
-		batch_size=per_device_batch_size, eval_batch_size=per_device_eval_batch_size,
+		batch_size=per_device_batch_size * world_size, eval_batch_size=per_device_eval_batch_size * world_size,
 		rng=rng, num_workers=num_workers, shuffle_training=True
 	)
 

@@ -25,6 +25,7 @@ def setup_training(key, cfg: DictConfig):
     train_loader, val_loader, test_loader, data = create_dataset_fn(
         cache_dir=cfg.data_dir,
         seed=cfg.seed,
+        world_size=num_devices,
         **cfg.training
     )
 
@@ -52,12 +53,10 @@ def setup_training(key, cfg: DictConfig):
         print(f'Resuming model from {cfg.training.from_checkpoint}')
         state = checkpoints.restore_checkpoint(osp.join(config.ckpt, 'checkpoints'), state)
 
-    if num_devices > 1:
-        state = jax_utils.replicate(state)
-
     # check if multiple GPUs are available and distribute training
     if num_devices >= 2:
         print(f"Running training on {num_devices} GPUs")
+        state = jax_utils.replicate(state)
         train_step = jax.pmap(
             partial(training_step, distributed=True),
             axis_name='data',

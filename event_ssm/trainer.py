@@ -12,6 +12,7 @@ from jaxtyping import Array
 from typing import Callable, Dict, Optional, Iterator, Any
 from flax.training.train_state import TrainState
 from flax.training import checkpoints
+from flax import jax_utils
 from functools import partial
 
 
@@ -177,6 +178,7 @@ class TrainerModule:
             eval_metrics = self.eval_model(
                 val_loader,
                 log_prefix='Performance/Validation',
+                world_size=self.world_size
             )
 
             self.on_validation_epoch_end(eval_metrics)
@@ -193,6 +195,7 @@ class TrainerModule:
             test_metrics = self.eval_model(
                 test_loader,
                 log_prefix='Performance/Test',
+                world_size=1
             )
             self.save_metrics('test', test_metrics)
             self.best_eval_metrics.update(test_metrics)
@@ -235,12 +238,13 @@ class TrainerModule:
             num_batches += 1
 
             if self.world_size > 1:
-                dropout_key = jax.vmap(jax.random.fold_in, in_axes=(None, self.world_size))(dropout_key, i)
+                step_key, dropout_key = jax.vmap(jax.random.split, in_axes=0, out_axes=1)(dropout_key)
+                step_key = jax.vmap(jax.random.fold_in)(step_key, jnp.arange(self.world_size))
                 batch = reshape_batch_per_device(batch, self.world_size)
             else:
-                dropout_key = jax.random.fold_in(dropout_key, i)
-            print(batch[0].shape)
-            self.train_state, step_metrics = self.train_step(self.train_state, batch, dropout_key)
+                step_key, dropout_key = jax.random.split(dropout_key)
+
+            self.train_state, step_metrics = self.train_step(self.train_state, batch, step_key)
 
             # exit from training if loss is nan
             if jnp.isnan(step_metrics['loss']).any():
@@ -268,6 +272,7 @@ class TrainerModule:
     def eval_model(
             self,
             data_loader: Iterator,
+            world_size: int,
             log_prefix: Optional[str] = ''
     ) -> Dict[str, Any]:
         """
@@ -288,7 +293,10 @@ class TrainerModule:
         num_batches = 0
 
         for i, batch in enumerate(iter(data_loader)):
-            print(batch[0].shape)
+
+            if self.world_size > 1:
+                batch = reshape_batch_per_device(batch, self.world_size)
+
             self.train_state, step_metrics = self.eval_step(self.train_state, batch)
 
             for key in step_metrics:
