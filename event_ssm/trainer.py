@@ -239,7 +239,7 @@ class TrainerModule:
                 batch = reshape_batch_per_device(batch, self.world_size)
             else:
                 dropout_key = jax.random.fold_in(dropout_key, i)
-
+            print(batch[0].shape)
             self.train_state, step_metrics = self.train_step(self.train_state, batch, dropout_key)
 
             # exit from training if loss is nan
@@ -288,7 +288,7 @@ class TrainerModule:
         num_batches = 0
 
         for i, batch in enumerate(iter(data_loader)):
-
+            print(batch[0].shape)
             self.train_state, step_metrics = self.eval_step(self.train_state, batch)
 
             for key in step_metrics:

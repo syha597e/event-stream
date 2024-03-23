@@ -1,21 +1,21 @@
 # @package _global_
 defaults:
-  - /model: audio/medium
+  - /model: dvs/medium
 
 task:
-  name: shd-classification
+  name: dvs-gesture-classification
 
 training:
   num_epochs: 30
-  per_device_batch_size: 64
-  per_device_eval_batch_size: 128
+  per_device_batch_size: 8
+  per_device_eval_batch_size: 2
   num_workers: 6
-  time_jitter: 900
-  noise: 35
+  time_jitter: 50
+  noise: 10
   drop_event: 0.1
-  time_skew: 1.12
-  pad_unit: 8192
-  validate_on_test: true
+  time_skew: 1.1
+  pad_unit: 524288
+  crop_events: 32768
 
 optimizer:
   ssm_lr: 1e-3

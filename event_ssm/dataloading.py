@@ -60,8 +60,8 @@ def event_stream_collate_fn(batch, resolution, pad_unit):
 	return tokens, np.array(y), timesteps, lengths
 
 
-def event_stream_dataloader(train_data, val_data, test_data, batch_size, eval_batch_size, collate_fn, rng, num_workers=0, shuffle_training=True):
-	def dataloader(dset, bsz, shuffle, drop_last):
+def event_stream_dataloader(train_data, val_data, test_data, batch_size, eval_batch_size, train_collate_fn, eval_collate_fn, rng, num_workers=0, shuffle_training=True):
+	def dataloader(dset, bsz, collate_fn, shuffle, drop_last):
 		return torch.utils.data.DataLoader(
 			dset,
 			batch_size=bsz,
@@ -71,16 +71,16 @@ def event_stream_dataloader(train_data, val_data, test_data, batch_size, eval_ba
 			generator=rng,
 			num_workers=num_workers
 		)
-	train_loader = dataloader(train_data, bsz=batch_size, shuffle=shuffle_training, drop_last=True)
-	val_loader = dataloader(val_data, bsz=eval_batch_size, shuffle=False, drop_last=False)
-	test_loader = dataloader(test_data, bsz=eval_batch_size, shuffle=False, drop_last=False)
+	train_loader = dataloader(train_data, batch_size, train_collate_fn, shuffle=shuffle_training, drop_last=True)
+	val_loader = dataloader(val_data, eval_batch_size, eval_collate_fn, shuffle=False, drop_last=False)
+	test_loader = dataloader(test_data, eval_batch_size, eval_collate_fn, shuffle=False, drop_last=False)
 	return train_loader, val_loader, test_loader
 
 
 def create_events_shd_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
-		batch_size: int = 32,
-		eval_batch_size: int = 64,
+		per_device_batch_size: int = 32,
+		per_device_eval_batch_size: int = 64,
 		num_workers: int = 0,
 		seed: int = 42,
 		time_jitter: float = 100,
@@ -116,23 +116,25 @@ def create_events_shd_classification_dataset(
 	])
 
 	train_data = tonic.datasets.SHD(save_to=cache_dir, train=True, transform=transforms)
+	val_data = tonic.datasets.SHD(save_to=cache_dir, train=True)
+	test_data = tonic.datasets.SHD(save_to=cache_dir, train=False)
 
+	# create validation set
 	if validate_on_test:
 		print("WARNING: Using test set for validation")
 		val_data = tonic.datasets.SHD(save_to=cache_dir, train=False)
 	else:
 		val_length = int(0.1 * len(train_data))
-		train_data, val_data = torch.utils.data.random_split(
-			train_data,
-			lengths=[len(train_data) - val_length, val_length],
-			generator=rng
-		)
-	test_data = tonic.datasets.SHD(save_to=cache_dir, train=False)
+		indices = torch.randperm(len(train_data), generator=rng)
+		train_data = torch.utils.data.Subset(train_data, indices[:-val_length])
+		val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
 
+	collate_fn = partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit)
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit),
-		batch_size=batch_size, eval_batch_size=eval_batch_size,
+		train_collate_fn=collate_fn,
+		eval_collate_fn=collate_fn,
+		batch_size=per_device_batch_size, eval_batch_size=per_device_eval_batch_size,
 		rng=rng, num_workers=num_workers, shuffle_training=True
 	)
 	data = Data(
@@ -142,8 +144,8 @@ def create_events_shd_classification_dataset(
 
 def create_events_ssc_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
-		batch_size: int = 32,
-		eval_batch_size: int = 64,
+		per_device_batch_size: int = 32,
+		per_device_eval_batch_size: int = 64,
 		num_workers: int = 0,
 		seed: int = 42,
 		time_jitter: float = 100,
@@ -181,10 +183,12 @@ def create_events_ssc_classification_dataset(
 	val_data = tonic.datasets.SSC(save_to=cache_dir, split='valid')
 	test_data = tonic.datasets.SSC(save_to=cache_dir, split='test')
 
+	collate_fn = partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit)
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit),
-		batch_size=batch_size, eval_batch_size=eval_batch_size,
+		train_collate_fn=collate_fn,
+		eval_collate_fn=collate_fn,
+		batch_size=per_device_batch_size, eval_batch_size=per_device_eval_batch_size,
 		rng=rng, num_workers=num_workers, shuffle_training=True
 	)
 
@@ -197,8 +201,8 @@ def create_events_ssc_classification_dataset(
 
 def create_events_dvs_gesture_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
-		batch_size: int = 32,
-		eval_batch_size: int = 64,
+		per_device_batch_size: int = 32,
+		per_device_eval_batch_size: int = 64,
 		num_workers: int = 0,
 		seed: int = 42,
 		crop_events: int = None,
@@ -244,24 +248,36 @@ def create_events_dvs_gesture_classification_dataset(
 		train_transforms.append(CropEvents(crop_events))
 
 	train_transforms = tonic.transforms.Compose(train_transforms)
-
-	train_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=train_transforms)
-	val_length = int(0.1 * len(train_data))
-	train_data, val_data = torch.utils.data.random_split(
-		train_data,
-		lengths=[len(train_data) - val_length, val_length],
-		generator=rng
-	)
-
 	test_transforms = tonic.transforms.Compose([
 		tonic.transforms.Downsample(spatial_factor=downsampling) if downsampling > 1 else Identity(),
 	])
+
+	train_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=train_transforms)
+	val_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=test_transforms)
 	test_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=False, transform=test_transforms)
 
+	# create validation set
+	val_length = int(0.1 * len(train_data))
+	indices = torch.randperm(len(train_data), generator=rng)
+	train_data = torch.utils.data.Subset(train_data, indices[:-val_length])
+	val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
+
+	# define collate functions
+	train_collate_fn = partial(
+			event_stream_collate_fn,
+			resolution=new_sensor_size[:2],
+			pad_unit=pad_unit if crop_events is None else crop_events
+		)
+	eval_collate_fn = partial(
+			event_stream_collate_fn,
+			resolution=new_sensor_size[:2],
+			pad_unit=pad_unit
+		)
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=new_sensor_size[:2], pad_unit=pad_unit if crop_events is None else crop_events),
-		batch_size=batch_size, eval_batch_size=eval_batch_size,
+		train_collate_fn=train_collate_fn,
+		eval_collate_fn=eval_collate_fn,
+		batch_size=per_device_batch_size, eval_batch_size=per_device_eval_batch_size,
 		rng=rng, num_workers=num_workers, shuffle_training=True
 	)
 
