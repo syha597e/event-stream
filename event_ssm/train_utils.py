@@ -192,21 +192,24 @@ def get_optimizer(opt_config):
         warmup_steps=opt_config.warmup_steps,
         schedule=opt_config.schedule
     )
-    tx = optax.multi_transform(
-        {
-            "ssm": optax.adamw(
-                learning_rate=learning_rate_fn(lr=opt_config.ssm_lr),
-                b1=0.9, b2=0.999,
-                weight_decay=opt_config.ssm_weight_decay),
-            "regular": optax.adamw(
-                learning_rate=learning_rate_fn(lr=opt_config.ssm_lr * opt_config.lr_factor),
-                b1=0.9, b2=0.999,
-                weight_decay=opt_config.weight_decay),
-        },
-        ssm_fn,
-    )
 
-    return tx, learning_rate_fn
+    def optimizer(learning_rate):
+        return optax.multi_transform(
+            {
+                "ssm": optax.inject_hyperparams(partial(
+                    optax.adamw,
+                    b1=0.9, b2=0.999,
+                    weight_decay=opt_config.ssm_weight_decay
+                ))(learning_rate=learning_rate_fn(lr=learning_rate)),
+                "regular": optax.adamw(
+                    learning_rate=learning_rate_fn(lr=learning_rate * opt_config.lr_factor),
+                    b1=0.9, b2=0.999,
+                    weight_decay=opt_config.weight_decay),
+            },
+            ssm_fn,
+        )
+
+    return optimizer(opt_config.ssm_lr)
 
 
 def init_model_state(rng_key, model, inputs, steps, lengths, opt_config):
@@ -220,11 +223,11 @@ def init_model_state(rng_key, model, inputs, steps, lengths, opt_config):
     batch_stats = variables['batch_stats']
     print_model_size(params)
 
-    tx, learning_rate_fn = get_optimizer(opt_config)
+    tx = get_optimizer(opt_config)
     return TrainState.create(
         apply_fn=model.apply,
         params=params,
         tx=tx,
         key=dropout_key,
         batch_stats=batch_stats
-    ), learning_rate_fn
+    )

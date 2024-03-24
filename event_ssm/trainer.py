@@ -140,6 +140,7 @@ class TrainerModule:
 
             # log number of parameters
             wandb.run.summary['Num parameters'] = num_parameters
+            wandb.define_metric(self.log_config.summary_metric, summary='max')
 
     def train_model(
             self,
@@ -187,6 +188,7 @@ class TrainerModule:
                 wandb_metrics = {'Performance/epoch': epoch_idx}
                 wandb_metrics.update(train_metrics)
                 wandb_metrics.update(eval_metrics)
+                wandb_metrics['learning rate'] = self.train_state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate'].item()
                 wandb.log(wandb_metrics)
 
         # Test best model if possible
