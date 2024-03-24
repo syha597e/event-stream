@@ -6,6 +6,7 @@ import os
 
 import jax.random
 from flax import jax_utils
+from flax.training import checkpoints
 
 from event_ssm.dataloading import Datasets
 from event_ssm.ssm import init_S5SSM
@@ -51,7 +52,7 @@ def setup_training(key, cfg: DictConfig):
 
     if cfg.training.get('from_checkpoint', None):
         print(f'Resuming model from {cfg.training.from_checkpoint}')
-        state = checkpoints.restore_checkpoint(osp.join(config.ckpt, 'checkpoints'), state)
+        state = checkpoints.restore_checkpoint(cfg.training.from_checkpoint, state)
 
     # check if multiple GPUs are available and distribute training
     if num_devices >= 2:
