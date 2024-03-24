@@ -6,21 +6,21 @@ task:
   name: dvs-gesture-classification
 
 training:
-  num_epochs: 30
+  num_epochs: 100
   per_device_batch_size: 8
   per_device_eval_batch_size: 2
   num_workers: 6
-  time_jitter: 50
-  noise: 10
-  drop_event: 0.1
+  time_jitter: 1
+  noise: 0.0
+  drop_event: 0.05
   time_skew: 1.1
   pad_unit: 524288
   crop_events: 32768
 
 optimizer:
-  ssm_lr: 1e-3
+  ssm_lr: 5e-5
   lr_factor: 4
-  warmup_epochs: 3
+  warmup_epochs: 10
   ssm_weight_decay: 0.0
-  weight_decay: 1e-2
+  weight_decay: 5e-2
   schedule: cosine
