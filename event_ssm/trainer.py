@@ -343,15 +343,10 @@ class TrainerModule:
             json.dump(metrics, f, indent=4)
 
     def save_model(self):
-        ckpt = {
-            'params': self.train_state.params,
-            'batch_stats': self.train_state.batch_stats,
-            'opt_state': self.train_state.opt_state,
-            'step': self.train_state.step,
-        }
+        state = jax_utils.unreplicate(self.train_state)
         checkpoints.save_checkpoint(
             ckpt_dir=os.path.join(self.log_dir, 'checkpoints'),
-            target=ckpt,
+            target=state,
             step=self.train_state.step,
             overwrite=True,
             keep=1
