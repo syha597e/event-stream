@@ -48,7 +48,7 @@ def setup_training(key, cfg: DictConfig):
     print("initializing model state...")
     batch = next(iter(train_loader))[:cfg.training.per_device_batch_size]
     inputs, targets, timesteps, lengths = batch
-    state, schedule_fn = init_model_state(key, model, inputs, timesteps, lengths, cfg.optimizer)
+    state = init_model_state(key, model, inputs, timesteps, lengths, cfg.optimizer)
 
     if cfg.training.get('from_checkpoint', None):
         print(f'Resuming model from {cfg.training.from_checkpoint}')
