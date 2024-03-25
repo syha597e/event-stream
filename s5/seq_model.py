@@ -47,7 +47,7 @@ class CNNModule(nn.Module):
         if pretrained:
             x = prep_image_for_transferlearning(x, (48, 48))
             resnet_backbone = FlaxResNetModel.from_pretrained("microsoft/resnet-50",from_pt=True) #use-pretrained-model-weights
-            if train_backbone: #TODO - Needs to be verified to work as expected
+            if train_backbone: #FIXME - This doesn't work
                 outputs = resnet_backbone(x,train=train_backbone)
                 out = outputs[0].pooler_output
             else:
