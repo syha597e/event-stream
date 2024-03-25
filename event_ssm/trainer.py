@@ -343,23 +343,27 @@ class TrainerModule:
             json.dump(metrics, f, indent=4)
 
     def save_model(self):
-        state = jax_utils.unreplicate(self.train_state)
+        if self.world_size > 1:
+            state = jax_utils.unreplicate(self.train_state)
+        else:
+            state = self.train_state
         checkpoints.save_checkpoint(
             ckpt_dir=os.path.join(self.log_dir, 'checkpoints'),
             target=state,
-            step=self.train_state.step,
+            step=state.step,
             overwrite=True,
             keep=1
         )
+        del state
 
     def load_model(self):
-        raw_restored = checkpoints.restore_checkpoint(ckpt_dir=os.path.join(self.log_dir, 'checkpoints'), target=None)
-        self.train_state = self.train_state.replace(
-            params=raw_restored['params'],
-            batch_stats=raw_restored['batch_stats'],
-            opt_state=raw_restored['opt_state'],
-            step=raw_restored['step']
-        )
+        if self.world_size > 1:
+            state = jax_utils.unreplicate(self.train_state)
+            raw_restored = checkpoints.restore_checkpoint(ckpt_dir=os.path.join(self.log_dir, 'checkpoints'), target=state)
+            self.train_state = jax_utils.replicate(raw_restored)
+            del state
+        else:
+            self.train_state = checkpoints.restore_checkpoint(ckpt_dir=os.path.join(self.log_dir, 'checkpoints'), target=self.train_state)
 
     def on_training_start(self):
         """
