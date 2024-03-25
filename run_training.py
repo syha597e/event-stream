@@ -31,8 +31,8 @@ def setup_training(key, cfg: DictConfig):
     )
 
     with open_dict(cfg):
-        cfg.optimizer.total_steps = cfg.training.num_epochs * len(train_loader)
-        cfg.optimizer.warmup_steps = cfg.optimizer.warmup_epochs * len(train_loader)
+        cfg.optimizer.total_steps = cfg.training.num_epochs * len(train_loader) // cfg.optimizer.accumulation_steps
+        cfg.optimizer.warmup_steps = cfg.optimizer.warmup_epochs * len(train_loader) // cfg.optimizer.accumulation_steps
 
     # load model
     print("creating model...")
