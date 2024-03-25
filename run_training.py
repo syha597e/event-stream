@@ -31,8 +31,12 @@ def setup_training(key, cfg: DictConfig):
     )
 
     with open_dict(cfg):
+        # optax updates the schedule every iteration and not every epoch
         cfg.optimizer.total_steps = cfg.training.num_epochs * len(train_loader) // cfg.optimizer.accumulation_steps
         cfg.optimizer.warmup_steps = cfg.optimizer.warmup_epochs * len(train_loader) // cfg.optimizer.accumulation_steps
+
+        # scale learning rate by batch size
+        cfg.optimizer.ssm_lr *= cfg.training.per_device_batch_size * num_devices
 
     # load model
     print("creating model...")
