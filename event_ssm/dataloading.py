@@ -30,6 +30,7 @@ def event_stream_collate_fn(batch, resolution, pad_unit):
 	# x are inputs, y are targets, z are aux data
 	x, y, *z = zip(*batch)
 	assert len(z) == 0
+	batch_size_one = len(x) == 1
 
 	# set labels to numpy array
 	y = np.array(y)
@@ -59,6 +60,9 @@ def event_stream_collate_fn(batch, resolution, pad_unit):
 
 	# timesteps are in micro seconds... transform to milliseconds
 	timesteps = timesteps / 1000
+
+	if batch_size_one:
+		lengths = lengths[None, ...]
 
 	return tokens, y, timesteps, lengths
 

@@ -7,15 +7,15 @@ task:
 
 training:
   num_epochs: 100
-  per_device_batch_size: 8
+  per_device_batch_size: 1
   per_device_eval_batch_size: 2
   num_workers: 6
   time_jitter: 1
   noise: 0.0
-  drop_event: 0.05
+  drop_event: 0.1
   time_skew: 1.1
   pad_unit: 524288
-  crop_events: 32768
+  crop_events: 262144
 
 optimizer:
   ssm_lr: 5e-5
