@@ -206,6 +206,10 @@ def get_optimizer(opt_config):
         ssm_fn,
     )
 
+    if opt_config.get('accumulation_steps', False):
+        print(f"Using gradient accumulation with {opt_config.accumulation_steps} steps")
+        tx = optax.MultiSteps(tx, every_k_schedule=opt_config.accumulation_steps)
+
     return tx, learning_rate_fn
 
 

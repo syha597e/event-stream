@@ -24,3 +24,4 @@ optimizer:
   ssm_weight_decay: 0.0
   weight_decay: 5e-2
   schedule: cosine
+  accumulation_steps: 8
