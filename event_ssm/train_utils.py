@@ -161,7 +161,7 @@ def get_learning_rate_fn(lr, total_steps, warmup_steps, schedule, **kwargs):
             init_value=0.,
             peak_value=lr,
             warmup_steps=warmup_steps,
-            decay_steps=total_steps - warmup_steps
+            decay_steps=total_steps
         )
     elif schedule == 'constant':
         learning_rate_fn = optax.join_schedules([
