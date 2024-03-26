@@ -340,7 +340,6 @@ def create_events_dvs_gesture_classification_dataset(
         rng=rng,
         shuffle_training=False,
     )
-
     return Data(
         train_loader,
         val_loader,
@@ -364,9 +363,9 @@ def create_events_dvs_gesture_frame_classification_dataset(
     """
     creates a view of the DVS Gesture dataset
 
-    :param cache_dir:		(str):		where to store the dataset
-    :param bsz:				(int):		Batch size.
-    :param seed:			(int)		Seed for shuffling data.
+    :param cache_dir:           (str):          where to store the dataset
+    :param bsz:                         (int):          Batch size.
+    :param seed:                        (int)           Seed for shuffling data.
     """
     print("[*] Generating DVS Gesture Classification Dataset")
 
@@ -384,7 +383,8 @@ def create_events_dvs_gesture_frame_classification_dataset(
         sensor_size = tonic.datasets.DVSGesture.sensor_size
         frame_transform_time = tonic.transforms.ToFrame(
             sensor_size=sensor_size,
-            time_window=frame_time * 1000,
+            event_count=1000,
+           # time_window=frame_time * 1000,
             include_incomplete=False,
         )
 
@@ -403,35 +403,27 @@ def create_events_dvs_gesture_frame_classification_dataset(
     batch_size = bsz
     augmentation = True
     cache = cache_dir
-
-    dataset = tonic.datasets.DVSGesture(
-        save_to=cache_dir, train=True, transform=None, target_transform=None
-    )
-
-    train_size = int(split * len(dataset))
-    val_size = len(dataset) - train_size
-    train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
-    test_dataset = tonic.datasets.DVSGesture(
-        save_to=cache_dir, train=False, transform=None, target_transform=None
-    )
-
     min_time_window = 1.7 * 1e6  # 1.7 s
     overlap = 0
     metadata_path = f"_{min_time_window}_{overlap}_{frame_time}_" + tr_str
-    if slice_by == "event":  # TODO - Make event based slicing trainable
-        slicer_by_event = SliceByEventCount(
-            event_count=1000, overlap=0, include_incomplete=False
-        )
-        train_dataset_sliced = SlicedDataset(
-            train_set, slicer=slicer_by_event, transform=None, metadata_path=None
-        )
-        val_dataset_sliced = SlicedDataset(
-            val_set, slicer=slicer_by_event, transform=None, metadata_path=None
-        )
-        test_dataset_sliced = SlicedDataset(
-            test_dataset, slicer=slicer_by_event, transform=None, metadata_path=None
-        )
+    if slice_by == "event":  # TODO - No slicing currently ! `ToFrame` transform with fixed event count
+        event_transform = tonic.transforms.ToFrame(sensor_size=tonic.datasets.DVSGesture.sensor_size, event_count=1000,include_incomplete=False)
+        dataset = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=event_transform, target_transform=None)
+        train_size = int(split * len(dataset))
+        val_size = len(dataset) - train_size
+        train_dataset_sliced, val_dataset_sliced = torch.utils.data.random_split(dataset, [train_size, val_size])
+        test_dataset_sliced = tonic.datasets.DVSGesture(save_to=cache_dir, train=False, transform=event_transform, target_transform=None)
+
     elif slice_by == "time":
+        dataset = tonic.datasets.DVSGesture(
+            save_to=cache_dir, train=True, transform=None, target_transform=None
+        )
+        train_size = int(split * len(dataset))
+        val_size = len(dataset) - train_size
+        train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
+        test_dataset = tonic.datasets.DVSGesture(
+            save_to=cache_dir, train=False, transform=None, target_transform=None
+        )
         slicer_by_time = SliceByTime(
             time_window=min_time_window, overlap=overlap, include_incomplete=False
         )
@@ -459,13 +451,13 @@ def create_events_dvs_gesture_frame_classification_dataset(
             )
         # i=0
         # for data, _ in train_dataset_timesliced:
-        # 	temp_max = data.max()
-        # 	data_max = temp_max if temp_max > data_max else data_max
-        # 	i=i+1
+        #       temp_max = data.max()
+        #       data_max = temp_max if temp_max > data_max else data_max
+        #       i=i+1
 
         # for data, _ in val_dataset_timesliced:
-        # 	temp_max = data.max()
-        # 	data_max = temp_max if temp_max > data_max else data_max
+        #       temp_max = data.max()
+        #       data_max = temp_max if temp_max > data_max else data_max
 
         print(f"Max train value: {data_max}")
         norm_transform = torchvision.transforms.Lambda(lambda x: x / data_max)
