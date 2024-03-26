@@ -11,7 +11,7 @@ from functools import partial
 
 class TrainState(train_state.TrainState):
     key: Array
-    batch_stats: Dict
+    model_state: Dict
 
 
 def training_step(
@@ -33,7 +33,7 @@ def training_step(
 
     def loss_fn(params):
         logits, updates = train_state.apply_fn(
-            {'params': params, 'batch_stats': train_state.batch_stats},
+            {'params': params, **train_state.model_state},
             inputs, integration_timesteps, lengths,
             True,
             rngs={'dropout': dropout_key},
@@ -55,7 +55,7 @@ def training_step(
         accuracy = jax.lax.pmean(accuracy, axis_name='data')
 
     train_state = train_state.apply_gradients(grads=grads)
-    train_state = train_state.replace(batch_stats=batch_updates['batch_stats'])
+    train_state = train_state.replace(model_state=batch_updates)
 
     return train_state, {'loss': loss, 'accuracy': accuracy}
 
@@ -75,7 +75,7 @@ def evaluation_step(
     """
     inputs, targets, integration_timesteps, lengths = batch
     logits = train_state.apply_fn(
-        {'params': train_state.params, 'batch_stats': train_state.batch_stats},
+        {'params': train_state.params, **train_state.model_state},
         inputs, integration_timesteps, lengths,
         False,
     )
@@ -223,8 +223,8 @@ def init_model_state(rng_key, model, inputs, steps, lengths, opt_config):
          "dropout": dropout_key},
         inputs, steps, lengths, True
     )
-    params = variables['params']
-    batch_stats = variables['batch_stats']
+    params = variables.pop('params')
+    model_state = variables
     print_model_size(params)
 
     tx = get_optimizer(opt_config)
@@ -233,5 +233,5 @@ def init_model_state(rng_key, model, inputs, steps, lengths, opt_config):
         params=params,
         tx=tx,
         key=dropout_key,
-        batch_stats=batch_stats
+        model_state=model_state
     )
