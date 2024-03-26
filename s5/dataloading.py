@@ -383,8 +383,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
         sensor_size = tonic.datasets.DVSGesture.sensor_size
         frame_transform_time = tonic.transforms.ToFrame(
             sensor_size=sensor_size,
-            event_count=1000,
-           # time_window=frame_time * 1000,
+            time_window=frame_time * 1000,
             include_incomplete=False,
         )
 
