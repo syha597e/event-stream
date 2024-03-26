@@ -8,7 +8,7 @@ task:
 training:
   num_epochs: 100
   per_device_batch_size: 1
-  per_device_eval_batch_size: 2
+  per_device_eval_batch_size: 1
   num_workers: 6
   time_jitter: 1
   noise: 0.0
