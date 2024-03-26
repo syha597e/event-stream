@@ -36,7 +36,7 @@ def setup_training(key, cfg: DictConfig):
         cfg.optimizer.warmup_steps = cfg.optimizer.warmup_epochs * len(train_loader) // cfg.optimizer.accumulation_steps
 
         # scale learning rate by batch size
-        cfg.optimizer.ssm_lr *= cfg.training.per_device_batch_size * num_devices
+        cfg.optimizer.ssm_lr = cfg.optimizer.ssm_lr * cfg.training.per_device_batch_size * num_devices * cfg.optimizer.accumulation_steps
 
     # load model
     print("creating model...")
