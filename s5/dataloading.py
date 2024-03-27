@@ -359,13 +359,16 @@ def create_events_dvs_gesture_frame_classification_dataset(
     seed: int = 42,
     crop_events: int = None,
     slice_by: str = "time",
+    slice_dataset: bool = True,
 ) -> Data:
     """
     creates a view of the DVS Gesture dataset
 
     :param cache_dir:           (str):          where to store the dataset
-    :param bsz:                         (int):          Batch size.
-    :param seed:                        (int)           Seed for shuffling data.
+    :param bsz:                 (int):          Batch size.
+    :param seed:                (int)           Seed for shuffling data.
+    :param slice_by:            (string)        type for frame construction.
+    :param slice_dataset:       (int)           to create multiple slices of a datapoint or not (The no: of datapoints increase if we opt this).
     """
     print("[*] Generating DVS Gesture Classification Dataset")
 
@@ -403,39 +406,52 @@ def create_events_dvs_gesture_frame_classification_dataset(
     augmentation = True
     cache = cache_dir
     min_time_window = 1.7 * 1e6  # 1.7 s
-    overlap = 0
-    metadata_path = f"_{min_time_window}_{overlap}_{frame_time}_" + tr_str
+    overlap = 0 
     if slice_by == "event":  # TODO - No slicing currently ! `ToFrame` transform with fixed event count
-        event_transform = tonic.transforms.ToFrame(sensor_size=tonic.datasets.DVSGesture.sensor_size, event_count=1000,include_incomplete=False)
+        event_count = 1000 # TODO - try with different counts ?
+        metadata_path = f"_{slice_by}_{overlap}_{event_count}_" + tr_str
+        event_transform = tonic.transforms.ToFrame(sensor_size=tonic.datasets.DVSGesture.sensor_size, event_count=event_count,include_incomplete=False)
         dataset = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=event_transform, target_transform=None)
         train_size = int(split * len(dataset))
         val_size = len(dataset) - train_size
         train_dataset_sliced, val_dataset_sliced = torch.utils.data.random_split(dataset, [train_size, val_size])
         test_dataset_sliced = tonic.datasets.DVSGesture(save_to=cache_dir, train=False, transform=event_transform, target_transform=None)
 
-    elif slice_by == "time":
-        dataset = tonic.datasets.DVSGesture(
-            save_to=cache_dir, train=True, transform=None, target_transform=None
-        )
-        train_size = int(split * len(dataset))
-        val_size = len(dataset) - train_size
-        train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
-        test_dataset = tonic.datasets.DVSGesture(
-            save_to=cache_dir, train=False, transform=None, target_transform=None
-        )
-        slicer_by_time = SliceByTime(
-            time_window=min_time_window, overlap=overlap, include_incomplete=False
-        )
-        train_dataset_sliced = SlicedDataset(
-            train_set, slicer=slicer_by_time, transform=transform, metadata_path=None
-        )
-        val_dataset_sliced = SlicedDataset(
-            val_set, slicer=slicer_by_time, transform=transform, metadata_path=None
-        )
-        test_dataset_sliced = SlicedDataset(
-            test_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None
-        )
-
+    elif slice_by == "time": #TODO - without slicing by time ?
+        if slice_dataset:
+            metadata_path = f"_{min_time_window}_{overlap}_{frame_time}_" + tr_str
+            dataset = tonic.datasets.DVSGesture(
+                save_to=cache_dir, train=True, transform=None, target_transform=None
+            )
+            train_size = int(split * len(dataset))
+            val_size = len(dataset) - train_size
+            train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
+            test_dataset = tonic.datasets.DVSGesture(
+                save_to=cache_dir, train=False, transform=None, target_transform=None
+            )
+            slicer_by_time = SliceByTime(
+                time_window=min_time_window, overlap=overlap, include_incomplete=False
+            )
+            train_dataset_sliced = SlicedDataset(
+                train_set, slicer=slicer_by_time, transform=transform, metadata_path=None
+            )
+            val_dataset_sliced = SlicedDataset(
+                val_set, slicer=slicer_by_time, transform=transform, metadata_path=None
+            )
+            test_dataset_sliced = SlicedDataset(
+                test_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None
+            )
+        else:
+            metadata_path = f"_{min_time_window}_{overlap}_{frame_time}_" + tr_str +"_no_slice"
+            dataset = tonic.datasets.DVSGesture(
+                save_to=cache_dir, train=True, transform=transform, target_transform=None
+            )
+            train_size = int(split * len(dataset))
+            val_size = len(dataset) - train_size
+            train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
+            test_dataset = tonic.datasets.DVSGesture(
+                save_to=cache_dir, train=False, transform=transform, target_transform=None
+            )
     else:
         assert TypeError("unknown argument for slicer")
 
@@ -524,6 +540,8 @@ def create_events_dvs_gesture_frame_classification_dataset(
     print(f"Loaded test dataset with {len(test_dataset)} samples")
     print(f"Loaded sliced test dataset with {len(cached_test_dataset_time)} samples")
     # os.makedirs(os.path.join(opt.cache, 'test'), exist_ok=True)
+    import pdb
+    pdb.set_trace()
     return Data(
         train_dataset,
         val_dataset,

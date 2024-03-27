@@ -109,6 +109,7 @@ if __name__ == "__main__":
 			   "time:       slice based on time \\" \
 	  	       "event:     slice based on event \\" \
 						)
+	parser.add_argument("--slice_dataset", type=str2bool, default=True,
+						help="Choose to slice the data to create a larger dataset. Supports only slicer_type=time")
 	
-
 	train(parser.parse_args())

@@ -10,7 +10,8 @@ from .dataloading import Datasets
 from .seq_model import BatchClassificationModel, RetrievalModel
 from .ssm import init_S5SSM
 from .ssm_init import make_DPLR_HiPPO
-
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 def train(args):
     """
     Main function to train over a certain number of epochs
@@ -86,7 +87,8 @@ def train(args):
         data = create_dataset_fn(
                 args.dir_name, seed=args.jax_seed, bsz=args.bsz,
                 crop_events=args.max_events_per_sample,
-                slice_by = args.slicer_type
+                slice_by = args.slicer_type,
+                slice_dataset = args.slice_dataset,
             )
     else:
         data = create_dataset_fn(
