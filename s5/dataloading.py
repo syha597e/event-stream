@@ -358,6 +358,7 @@ def frame_collate_fn(batch):
     x, y = zip(*batch)
     padded_tensors = []
     for tensor in x:
+        tensor = torch.tensor(tensor)
         current_length = tensor.shape[0]
         if current_length < max_length:
             padd_len = max_length - tensor.shape[0]
@@ -550,11 +551,10 @@ def create_events_dvs_gesture_frame_classification_dataset(
     )
     test_dataset = DataLoader(
         cached_test_dataset_time,
-        batch_size=bsz,
+        batch_size=batch_size,
         collate_fn=collate_fn,
         drop_last=True,
     )
-
     print(f"Loaded train dataset with {len(train_dataset.dataset)} samples")
     print(f"Loaded val dataset with {len(val_dataset.dataset)} samples")
     print(f"Loaded test dataset with {len(test_dataset)} samples")
@@ -563,7 +563,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
     return Data(
         train_dataset,
         val_dataset,
-        cached_test_dataset_time,
+        test_dataset,
         aux_loaders={},
         n_classes=11,
         in_dim=32768,
