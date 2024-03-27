@@ -156,11 +156,11 @@ class StackedEncoderModel(nn.Module):
         Returns:
             output sequence (float32): (L, d_model)
         """
-        x = x.reshape(67, 128, 128, 2)  # FIXME - hardcode
+        x = x.reshape(500, 128, 128, 2)  # FIXME - hardcode
         if self.use_cnn:
             flat_merge_events = partial(merge_events, flatten=False)
             x = jax.vmap(flat_merge_events)(x)
-            x = x.reshape(67, 128, 128, 1)  # FIXME hardcode
+            x = x.reshape(500, 128, 128, 1)  # FIXME hardcode
             if (
                 self.use_pretrained
             ):  # TODO - vmap giving memory error for pretrained model

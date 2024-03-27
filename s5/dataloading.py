@@ -352,6 +352,25 @@ def create_events_dvs_gesture_classification_dataset(
         train_size=len(train_data),
     )
 
+def frame_collate_fn(batch):
+    max_length = 500 #TODO - remove hardcode
+    #x,y = batch
+    x, y = zip(*batch)
+    padded_tensors = []
+    for tensor in x:
+        current_length = tensor.shape[0]
+        if current_length < max_length:
+            padd_len = max_length - tensor.shape[0]
+            pad_tensor = torch.zeros(padd_len, 2, 128, 128)
+            padded_tensor = torch.cat((tensor, pad_tensor), dim=0)
+        else:
+            padded_tensor = tensor[:max_length]  # Trim the tensor if it exceeds fixed_length
+        padded_tensors.append(padded_tensor)
+
+    x = torch.stack(padded_tensors)
+    return x,torch.tensor(y).int()
+
+
 
 def create_events_dvs_gesture_frame_classification_dataset(
     cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
@@ -512,26 +531,27 @@ def create_events_dvs_gesture_frame_classification_dataset(
     )
 
     kwargs = {"num_workers": 1, "pin_memory": True} if torch.cuda.is_available() else {}
-
+    collate_fn = tonic.collation.PadTensors(batch_first=True) if slice_dataset else frame_collate_fn
     train_dataset = DataLoader(
         train_cached_dataset,
         batch_size=batch_size,
         shuffle=True,
-        collate_fn=tonic.collation.PadTensors(batch_first=True),
+        #collate_fn=tonic.collation.PadTensors(batch_first=True),
+        collate_fn= collate_fn,
         drop_last=True,
         **kwargs,
     )
     val_dataset = DataLoader(
         val_cached_dataset,
         batch_size=batch_size,
-        collate_fn=tonic.collation.PadTensors(batch_first=True),
+        collate_fn=collate_fn,
         drop_last=True,
         **kwargs,
     )
     test_dataset = DataLoader(
         cached_test_dataset_time,
         batch_size=bsz,
-        collate_fn=tonic.collation.PadTensors(batch_first=True),
+        collate_fn=collate_fn,
         drop_last=True,
     )
 
@@ -543,12 +563,12 @@ def create_events_dvs_gesture_frame_classification_dataset(
     return Data(
         train_dataset,
         val_dataset,
-        test_dataset,
+        cached_test_dataset_time,
         aux_loaders={},
         n_classes=11,
         in_dim=32768,
-        train_pad_length=67,
-        test_pad_length=67,
+        train_pad_length=500,
+        test_pad_length=500,
         train_size=len(train_dataset)*batch_size,
     )
 
