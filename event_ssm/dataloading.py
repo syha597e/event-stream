@@ -1,9 +1,9 @@
 import torch
+import os
 from pathlib import Path
 from typing import Callable, Optional, TypeVar, Dict, Tuple, List, Union
 import tonic
 from functools import partial
-from torch.nn.functional import pad
 import numpy as np
 import jax
 from event_ssm.transform import CropEvents, Identity
@@ -215,7 +215,7 @@ def create_events_dvs_gesture_classification_dataset(
 		world_size: int = 1,
 		num_workers: int = 0,
 		seed: int = 42,
-		crop_events: int = None,
+		slice_events: int = 0,
 		time_jitter: float = 100,
 		noise: int = 100,
 		drop_event: float = 0.1,
@@ -233,8 +233,6 @@ def create_events_dvs_gesture_classification_dataset(
 	"""
 	print("[*] Generating DVS Gesture Classification Dataset")
 
-	assert isinstance(crop_events, int), "default_num_events must be an integer"
-	assert crop_events > 0, "default_num_events must be a positive integer"
 	assert time_skew > 1, "time_skew must be greater than 1"
 
 	if seed is not None:
@@ -251,32 +249,45 @@ def create_events_dvs_gesture_classification_dataset(
 		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
 		tonic.transforms.SpatialJitter(sensor_size=orig_sensor_size, var_x=1, var_y=1, clip_outliers=True),
 		tonic.transforms.Downsample(spatial_factor=downsampling) if downsampling > 1 else Identity(),
-		tonic.transforms.DropEventByArea(sensor_size=new_sensor_size, area_ratio=(0.05, 0.2)),
+		#tonic.transforms.DropEventByArea(sensor_size=new_sensor_size, area_ratio=(0.05, 0.2)),
 		tonic.transforms.UniformNoise(sensor_size=new_sensor_size, n=(0, noise))
 	]
-	if crop_events is not None:
-		train_transforms.append(CropEvents(crop_events))
 
 	train_transforms = tonic.transforms.Compose(train_transforms)
 	test_transforms = tonic.transforms.Compose([
 		tonic.transforms.Downsample(spatial_factor=downsampling) if downsampling > 1 else Identity(),
 	])
 
-	train_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=train_transforms)
-	val_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=test_transforms)
-	test_data = tonic.datasets.DVSGesture(save_to=cache_dir, train=False, transform=test_transforms)
+	TrainData = partial(tonic.datasets.DVSGesture, save_to=cache_dir, train=True)
+	TestData = partial(tonic.datasets.DVSGesture, save_to=cache_dir, train=False)
 
-	# create validation set
-	val_length = int(0.1 * len(train_data))
-	indices = torch.randperm(len(train_data), generator=rng)
-	train_data = torch.utils.data.Subset(train_data, indices[:-val_length])
+	# create train validation split
+	val_data = TrainData(transform=test_transforms)
+	val_length = int(0.1 * len(val_data))
+	indices = torch.randperm(len(val_data), generator=rng)
 	val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
+
+	# if slice event count is given, train on slices of the training data
+	if slice_events > 0:
+		slicer = tonic.slicers.SliceByEventCount(event_count=slice_events, overlap=slice_events // 2, include_incomplete=True)
+		train_subset = torch.utils.data.Subset(TrainData(), indices[:-val_length])
+		train_data = tonic.sliced_dataset.SlicedDataset(
+			dataset=train_subset,
+			slicer=slicer,
+			transform=train_transforms,
+			metadata_path=None
+		)
+	else:
+		train_data = torch.utils.data.Subset(TrainData(transform=train_transforms), indices[:-val_length])
+
+	# Always evaluate on the full sequences
+	test_data = TestData(transform=test_transforms)
 
 	# define collate functions
 	train_collate_fn = partial(
 			event_stream_collate_fn,
 			resolution=new_sensor_size[:2],
-			pad_unit=pad_unit if crop_events is None else crop_events,
+			pad_unit=pad_unit if slice_events == 0 else slice_events,
 		)
 	eval_collate_fn = partial(
 			event_stream_collate_fn,
