@@ -448,8 +448,8 @@ def create_events_dvs_gesture_frame_classification_dataset(
             )
             train_size = int(split * len(dataset))
             val_size = len(dataset) - train_size
-            train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
-            test_dataset = tonic.datasets.DVSGesture(
+            train_dataset_sliced, val_dataset_sliced = torch.utils.data.random_split(dataset, [train_size, val_size])
+            test_dataset_sliced = tonic.datasets.DVSGesture(
                 save_to=cache_dir, train=False, transform=transform, target_transform=None
             )
     else:
@@ -540,8 +540,6 @@ def create_events_dvs_gesture_frame_classification_dataset(
     print(f"Loaded test dataset with {len(test_dataset)} samples")
     print(f"Loaded sliced test dataset with {len(cached_test_dataset_time)} samples")
     # os.makedirs(os.path.join(opt.cache, 'test'), exist_ok=True)
-    import pdb
-    pdb.set_trace()
     return Data(
         train_dataset,
         val_dataset,
