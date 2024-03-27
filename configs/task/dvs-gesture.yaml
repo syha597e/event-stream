@@ -18,7 +18,7 @@ training:
   crop_events: 262144
 
 optimizer:
-  ssm_lr: 5e-5
+  ssm_base_lr: 5e-5
   lr_factor: 4
   warmup_epochs: 10
   ssm_weight_decay: 0.0

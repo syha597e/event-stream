@@ -18,7 +18,7 @@ training:
   validate_on_test: true
 
 optimizer:
-  ssm_lr: 1e-3
+  ssm_base_lr: 1e-3
   lr_factor: 4
   warmup_epochs: 3
   ssm_weight_decay: 0.0
