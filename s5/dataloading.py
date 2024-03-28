@@ -352,8 +352,8 @@ def create_events_dvs_gesture_classification_dataset(
         train_size=len(train_data),
     )
 
-def frame_collate_fn(batch):
-    max_length = 500 #TODO - remove hardcode
+def frame_collate_fn(batch,max_length=500):
+    #max_length = 500 #TODO - remove hardcode
     #x,y = batch
     x, y = zip(*batch)
     padded_tensors = []
@@ -428,6 +428,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
     min_time_window = 1.7 * 1e6  # 1.7 s
     overlap = 0 
     if slice_by == "event":  # TODO - No slicing currently ! `ToFrame` transform with fixed event count
+        train_pad_length,test_pad_length = 306,306#TODO - currently hardcode the median. Improve the code
         event_count = 1000 # TODO - try with different counts ?
         metadata_path = f"_{slice_by}_{overlap}_{event_count}_" + tr_str
         event_transform = tonic.transforms.ToFrame(sensor_size=tonic.datasets.DVSGesture.sensor_size, event_count=event_count,include_incomplete=False)
@@ -439,6 +440,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
 
     elif slice_by == "time": #TODO - without slicing by time ?
         if slice_dataset:
+            train_pad_length,test_pad_length = 67,67
             metadata_path = f"_{min_time_window}_{overlap}_{frame_time}_" + tr_str
             dataset = tonic.datasets.DVSGesture(
                 save_to=cache_dir, train=True, transform=None, target_transform=None
@@ -462,6 +464,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
                 test_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None
             )
         else:
+            train_pad_length,test_pad_length = 254,254 #TODO - currently hardcode the median. Improve the code
             metadata_path = f"_{min_time_window}_{overlap}_{frame_time}_" + tr_str +"_no_slice"
             dataset = tonic.datasets.DVSGesture(
                 save_to=cache_dir, train=True, transform=transform, target_transform=None
@@ -532,7 +535,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
     )
 
     kwargs = {"num_workers": 1, "pin_memory": True} if torch.cuda.is_available() else {}
-    collate_fn = tonic.collation.PadTensors(batch_first=True) if slice_dataset else frame_collate_fn
+    collate_fn = tonic.collation.PadTensors(batch_first=True) if slice_dataset else partial(frame_collate_fn,max_length=train_pad_length)
     train_dataset = DataLoader(
         train_cached_dataset,
         batch_size=batch_size,
@@ -567,8 +570,8 @@ def create_events_dvs_gesture_frame_classification_dataset(
         aux_loaders={},
         n_classes=11,
         in_dim=32768,
-        train_pad_length=500,
-        test_pad_length=500,
+        train_pad_length=train_pad_length,
+        test_pad_length=test_pad_length,
         train_size=len(train_dataset)*batch_size,
     )
 

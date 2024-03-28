@@ -156,17 +156,18 @@ class StackedEncoderModel(nn.Module):
         Returns:
             output sequence (float32): (L, d_model)
         """
-        x = x.reshape(500, 128, 128, 2)  # FIXME - hardcode
+        seq_len =  x.shape[0]
+        x = x.reshape(seq_len,128,128,2)
         if self.use_cnn:
             flat_merge_events = partial(merge_events, flatten=False)
             x = jax.vmap(flat_merge_events)(x)
-            x = x.reshape(500, 128, 128, 1)  # FIXME hardcode
+            x = x.reshape(seq_len, 128, 128, 1)  # FIXME hardcode
             if (
                 self.use_pretrained
             ):  # TODO - vmap giving memory error for pretrained model
                 # batch_pad = partial(prep_image_for_transferlearning,pad_size=(48,48))
                 output_inner = []
-                for i in range(67):
+                for i in range(seq_len):
                     output_inner.append(self.conv_layer(x[i], pretrained=True))
                 cur_layer_input = np.stack(output_inner)
                 # x = jax.vmap(batch_pad)(x)
@@ -177,7 +178,7 @@ class StackedEncoderModel(nn.Module):
 
         else:
             x = jax.vmap(merge_events)(x)
-            x = x.reshape(67, 128, 128, 1)  # FIXME hardcode
+            x = x.reshape(seq_len, 128, 128, 1)  # FIXME hardcode
             cur_layer_input = x
         x = self.encoder(cur_layer_input)
         for layer in self.layers:
