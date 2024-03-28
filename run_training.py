@@ -22,7 +22,7 @@ def setup_training(key, cfg: DictConfig):
     create_dataset_fn = Datasets[cfg.task.name]
 
     # Create dataset...
-    print("loading dataset...")
+    print("[*] Loading dataset...")
     train_loader, val_loader, test_loader, data = create_dataset_fn(
         cache_dir=cfg.data_dir,
         seed=cfg.seed,
@@ -39,7 +39,7 @@ def setup_training(key, cfg: DictConfig):
         cfg.optimizer.ssm_lr = cfg.optimizer.ssm_base_lr * cfg.training.per_device_batch_size * num_devices * cfg.optimizer.accumulation_steps
 
     # load model
-    print("creating model...")
+    print("[*] Creating model...")
     ssm_init_fn = init_S5SSM(**cfg.model.ssm_init)
     model = BatchClassificationModel(
         ssm=ssm_init_fn,
@@ -49,19 +49,19 @@ def setup_training(key, cfg: DictConfig):
     )
 
     # initialize training state
-    print("initializing model state...")
+    print("[*] Initializing model state...")
     single_bsz = cfg.training.per_device_batch_size
     batch = next(iter(train_loader))
     inputs, targets, timesteps, lengths = batch
     state = init_model_state(key, model, inputs[:single_bsz], timesteps[:single_bsz], lengths[:single_bsz], cfg.optimizer)
 
     if cfg.training.get('from_checkpoint', None):
-        print(f'Resuming model from {cfg.training.from_checkpoint}')
+        print(f'[*] Resuming model from {cfg.training.from_checkpoint}')
         state = checkpoints.restore_checkpoint(cfg.training.from_checkpoint, state)
 
     # check if multiple GPUs are available and distribute training
     if num_devices >= 2:
-        print(f"Running training on {num_devices} GPUs")
+        print(f"[*] Running training on {num_devices} GPUs")
         state = jax_utils.replicate(state)
         train_step = jax.pmap(
             partial(training_step, distributed=True),
@@ -108,7 +108,7 @@ def main(config: DictConfig):
     trainer, train_loader, val_loader, test_loader = setup_training(key=init_key, cfg=config)
 
     # run training
-    print("running training...")
+    print("[*] Running training...")
     trainer.train_model(
         train_loader=train_loader,
         val_loader=val_loader,

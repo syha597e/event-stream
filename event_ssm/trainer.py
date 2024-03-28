@@ -114,7 +114,7 @@ class TrainerModule:
 
         # logger details
         self.log_dir = os.path.join(self.log_config.log_dir)
-        print('logging to', self.log_dir)
+        print('[*] Logging to', self.log_dir)
 
         if not os.path.isdir(self.log_dir):
             os.makedirs(self.log_dir)
@@ -127,7 +127,7 @@ class TrainerModule:
             [arr.size for arr in jax.tree_flatten(self.train_state.params)[0]
              if isinstance(arr, Array)]
         ) / self.world_size)
-        print("Number of model parameters:", num_parameters)
+        print("[*] Number of model parameters:", num_parameters)
 
         if self.log_config.wandb:
             wandb.init(

@@ -152,7 +152,7 @@ def print_model_size(params, name=''):
     fn_is_complex = lambda x: x.dtype in [np.complex64, np.complex128]
     param_sizes = map_nested_fn(lambda k, param: param.size * (2 if fn_is_complex(param) else 1))(params)
     total_params_size = sum(jax.tree_leaves(param_sizes))
-    print('model parameter count:', total_params_size)
+    print('[*] Model parameter count:', total_params_size)
 
 
 def get_learning_rate_fn(lr, total_steps, warmup_steps, schedule, **kwargs):
@@ -209,7 +209,7 @@ def get_optimizer(opt_config):
             ssm_fn,
         )
         if opt_config.get('accumulation_steps', False):
-            print(f"Using gradient accumulation with {opt_config.accumulation_steps} steps")
+            print(f"[*] Using gradient accumulation with {opt_config.accumulation_steps} steps")
             tx = optax.MultiSteps(tx, every_k_schedule=opt_config.accumulation_steps)
         return tx
 

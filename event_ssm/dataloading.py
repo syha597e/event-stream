@@ -6,7 +6,7 @@ import tonic
 from functools import partial
 import numpy as np
 import jax
-from event_ssm.transform import Identity, Roll, Rotate, Scale
+from event_ssm.transform import Identity, Roll, Rotate, Scale, DropEventChunk
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
@@ -34,6 +34,8 @@ def event_stream_collate_fn(batch, resolution, pad_unit):
 
 	# set labels to numpy array
 	y = np.array(y)
+
+	#
 
 	# integration time steps are the difference between two consequtive time stamps
 	timesteps = [np.diff(e['t']) for e in x]
@@ -129,7 +131,7 @@ def create_events_shd_classification_dataset(
 
 	# create validation set
 	if validate_on_test:
-		print("WARNING: Using test set for validation")
+		print("[*] WARNING: Using test set for validation")
 		val_data = tonic.datasets.SHD(save_to=cache_dir, train=False)
 	else:
 		val_length = int(0.1 * len(train_data))
@@ -216,12 +218,17 @@ def create_events_dvs_gesture_classification_dataset(
 		num_workers: int = 0,
 		seed: int = 42,
 		slice_events: int = 0,
+		pad_unit: int = 2 ** 19,
+		# Augmentation parameters
 		time_jitter: float = 100,
 		noise: int = 100,
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
 		downsampling: int = 1,
-		pad_unit: int = 2 ** 19,
+		max_roll: int = 4,
+		max_angle: float = 10,
+		max_scale: float = 1.5,
+		max_drop_chunk: float = 0.1,
 		**kwargs
 ) -> Tuple[DataLoader, DataLoader, DataLoader, Data]:
 	"""
@@ -245,6 +252,7 @@ def create_events_dvs_gesture_classification_dataset(
 	new_sensor_size = (128 // downsampling, 128 // downsampling, 2)
 	train_transforms = [
 		# Event transformations
+		DropEventChunk(p=0.3, max_drop_size=max_drop_chunk),
 		tonic.transforms.DropEvent(p=drop_event),
 		tonic.transforms.UniformNoise(sensor_size=new_sensor_size, n=(0, noise)),
 		# Time tranformations
@@ -254,6 +262,9 @@ def create_events_dvs_gesture_classification_dataset(
 		tonic.transforms.SpatialJitter(sensor_size=orig_sensor_size, var_x=1, var_y=1, clip_outliers=True),
 		tonic.transforms.Downsample(sensor_size=orig_sensor_size, target_size=new_sensor_size[:2]) if downsampling > 1 else Identity(),
 		# Geometric tranformations
+		Roll(sensor_size=new_sensor_size, p=0.3, max_roll=max_roll),
+		Rotate(sensor_size=new_sensor_size, p=0.3, max_angle=max_angle),
+		Scale(sensor_size=new_sensor_size, p=0.3, max_scale=max_scale),
 	]
 
 	train_transforms = tonic.transforms.Compose(train_transforms)
@@ -266,7 +277,7 @@ def create_events_dvs_gesture_classification_dataset(
 
 	# create train validation split
 	val_data = TrainData(transform=test_transforms)
-	val_length = int(0.1 * len(val_data))
+	val_length = int(0.2 * len(val_data))
 	indices = torch.randperm(len(val_data), generator=rng)
 	val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
 
