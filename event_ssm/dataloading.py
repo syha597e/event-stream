@@ -6,7 +6,7 @@ import tonic
 from functools import partial
 import numpy as np
 import jax
-from event_ssm.transform import CropEvents, Identity
+from event_ssm.transform import Identity, Roll, Rotate, Scale
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
@@ -244,18 +244,21 @@ def create_events_dvs_gesture_classification_dataset(
 	orig_sensor_size = (128, 128, 2)
 	new_sensor_size = (128 // downsampling, 128 // downsampling, 2)
 	train_transforms = [
+		# Event transformations
 		tonic.transforms.DropEvent(p=drop_event),
+		tonic.transforms.UniformNoise(sensor_size=new_sensor_size, n=(0, noise)),
+		# Time tranformations
 		tonic.transforms.TimeSkew(coefficient=(1 / time_skew, time_skew), offset=0),
 		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
+		# Spatial transformations
 		tonic.transforms.SpatialJitter(sensor_size=orig_sensor_size, var_x=1, var_y=1, clip_outliers=True),
-		tonic.transforms.Downsample(spatial_factor=downsampling) if downsampling > 1 else Identity(),
-		#tonic.transforms.DropEventByArea(sensor_size=new_sensor_size, area_ratio=(0.05, 0.2)),
-		tonic.transforms.UniformNoise(sensor_size=new_sensor_size, n=(0, noise))
+		tonic.transforms.Downsample(sensor_size=orig_sensor_size, target_size=new_sensor_size[:2]) if downsampling > 1 else Identity(),
+		# Geometric tranformations
 	]
 
 	train_transforms = tonic.transforms.Compose(train_transforms)
 	test_transforms = tonic.transforms.Compose([
-		tonic.transforms.Downsample(spatial_factor=downsampling) if downsampling > 1 else Identity(),
+		tonic.transforms.Downsample(sensor_size=orig_sensor_size, target_size=new_sensor_size[:2]) if downsampling > 1 else Identity(),
 	])
 
 	TrainData = partial(tonic.datasets.DVSGesture, save_to=cache_dir, train=True)
