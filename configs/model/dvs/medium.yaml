@@ -10,15 +10,15 @@ model:
   ssm:
     discretization: state_zoh
     discretization_first_layer: state_zoh
-    d_model: 512
-    d_ssm: 512
+    d_model: 256
+    d_ssm: 256
     block_size: 16
     num_layers: 12
     activation_fn: half_glu2
     dropout: 0.1
     classification_mode: timepool
     prenorm: true
-    batchnorm: true
+    batchnorm: false
     bn_momentum: 0.95
     pooling_stride: 8
     pooling_every_n_layers: 4
