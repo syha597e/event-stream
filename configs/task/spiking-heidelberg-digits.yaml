@@ -10,17 +10,20 @@ training:
   per_device_batch_size: 64
   per_device_eval_batch_size: 128
   num_workers: 6
-  time_jitter: 900
+  time_jitter: 100
+  spatial_jitter: 1.0
   noise: 35
+  max_drop_chunk: 0.1
   drop_event: 0.1
   time_skew: 1.12
   pad_unit: 8192
   validate_on_test: true
 
 optimizer:
-  ssm_base_lr: 1e-3
+  ssm_base_lr: 2e-5
   lr_factor: 4
   warmup_epochs: 3
   ssm_weight_decay: 0.0
   weight_decay: 1e-2
   schedule: cosine
+  accumulation_steps: 1

@@ -24,6 +24,26 @@ class CropEvents:
             return events[start:start + self.num_events]
 
 
+class Jitter1D:
+    """
+    Apply random jitter to event coordinates
+    Parameters:
+        max_roll (int): maximum number of pixels to roll by
+    """
+    def __init__(self, sensor_size, var):
+        self.sensor_size = sensor_size
+        self.var = var
+
+    def __call__(self, events):
+        # roll x, y coordinates by a random amount
+        shift = np.random.normal(0, self.var, len(events)).astype(np.int32)
+        events['x'] += shift
+        # remove events who got shifted out of the sensor size
+        mask = (events['x'] >= 0) & (events['x'] < self.sensor_size[0])
+        events = events[mask]
+        return events
+
+
 class Roll:
     """
     Roll event x, y coordinates by a random amount

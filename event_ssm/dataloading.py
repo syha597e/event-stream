@@ -6,7 +6,7 @@ import tonic
 from functools import partial
 import numpy as np
 import jax
-from event_ssm.transform import Identity, Roll, Rotate, Scale, DropEventChunk
+from event_ssm.transform import Identity, Roll, Rotate, Scale, DropEventChunk, Jitter1D
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
@@ -94,6 +94,8 @@ def create_events_shd_classification_dataset(
 		num_workers: int = 0,
 		seed: int = 42,
 		time_jitter: float = 100,
+		spatial_jitter: float = 1.0,
+		max_drop_chunk: float = 0.1,
 		noise: int = 100,
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
@@ -120,6 +122,8 @@ def create_events_shd_classification_dataset(
 
 	transforms = tonic.transforms.Compose([
 		tonic.transforms.DropEvent(p=drop_event),
+		DropEventChunk(p=0.3, max_drop_size=max_drop_chunk),
+		Jitter1D(sensor_size=sensor_size, var=spatial_jitter),
 		tonic.transforms.TimeSkew(coefficient=(1 / time_skew, time_skew), offset=0),
 		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
 		tonic.transforms.UniformNoise(sensor_size=sensor_size, n=(0, noise))
@@ -160,6 +164,8 @@ def create_events_ssc_classification_dataset(
 		num_workers: int = 0,
 		seed: int = 42,
 		time_jitter: float = 100,
+		spatial_jitter: float = 1.0,
+		max_drop_chunk: float = 0.1,
 		noise: int = 100,
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
@@ -185,6 +191,8 @@ def create_events_ssc_classification_dataset(
 
 	transforms = tonic.transforms.Compose([
 		tonic.transforms.DropEvent(p=drop_event),
+		DropEventChunk(p=0.3, max_drop_size=max_drop_chunk),
+		Jitter1D(sensor_size=sensor_size, var=spatial_jitter),
 		tonic.transforms.TimeSkew(coefficient=(1 / time_skew, time_skew), offset=0),
 		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
 		tonic.transforms.UniformNoise(sensor_size=sensor_size, n=(0, noise))
