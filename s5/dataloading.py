@@ -550,6 +550,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
         batch_size=batch_size,
         collate_fn=collate_fn,
         drop_last=True,
+        shuffle=True,
         **kwargs,
     )
     test_dataset = DataLoader(
@@ -557,6 +558,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
         batch_size=batch_size,
         collate_fn=collate_fn,
         drop_last=True,
+        shuffle=True,
     )
     print(f"Loaded train dataset with {len(train_dataset.dataset)} samples")
     print(f"Loaded val dataset with {len(val_dataset.dataset)} samples")
