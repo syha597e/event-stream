@@ -442,13 +442,12 @@ def create_events_dvs_gesture_frame_classification_dataset(
     min_time_window = 1.7 * 1e6  # 1.7 s
     overlap = 0 
     if slice_by == "event":  # TODO - No slicing currently ! `ToFrame` transform with fixed event count
-        train_pad_length,test_pad_length = 306,306#TODO - currently hardcode the median. Improve the code
         event_count = 1000 # TODO - try with different counts ?
         metadata_path = f"_{slice_by}_{overlap}_{event_count}_" + tr_str
         event_transform = tonic.transforms.ToFrame(sensor_size=tonic.datasets.DVSGesture.sensor_size, event_count=event_count,include_incomplete=False)
         dataset = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=event_transform, target_transform=None)
         data_stats = get_stats(dataset)
-        train_pad_length= data_stats[pad_option]
+        train_pad_length= int(data_stats[pad_option])
         train_size = int(split * len(dataset))
         val_size = len(dataset) - train_size
         train_dataset_sliced, val_dataset_sliced = torch.utils.data.random_split(dataset, [train_size, val_size])
@@ -480,7 +479,6 @@ def create_events_dvs_gesture_frame_classification_dataset(
                 test_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None
             )
         else:
-            train_pad_length,test_pad_length = 254,254 #TODO - currently hardcode the median. Improve the code
             metadata_path = f"_{min_time_window}_{overlap}_{frame_time}_" + tr_str +"_no_slice"
             dataset = tonic.datasets.DVSGesture(
                 save_to=cache_dir, train=True, transform=transform, target_transform=None
