@@ -10,7 +10,6 @@ from .dataloading import Datasets
 from .seq_model import BatchClassificationModel, RetrievalModel
 from .ssm import init_S5SSM
 from .ssm_init import make_DPLR_HiPPO
-
 def train(args):
     """
     Main function to train over a certain number of epochs
@@ -62,7 +61,7 @@ def train(args):
             retrieval = False
 
     else:
-        padded = False
+        padded = True
         tokenized = False
         retrieval = False
 
