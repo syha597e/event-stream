@@ -353,10 +353,9 @@ def create_events_dvs_gesture_classification_dataset(
     )
 
 def frame_collate_fn(batch,max_length=500):
-    #max_length = 500 #TODO - remove hardcode
-    #x,y = batch
     x, y = zip(*batch)
     padded_tensors = []
+    lengths= torch.tensor([len(x) for x in x])
     for tensor in x:
         tensor = torch.tensor(tensor)
         current_length = tensor.shape[0]
@@ -369,9 +368,23 @@ def frame_collate_fn(batch,max_length=500):
         padded_tensors.append(padded_tensor)
 
     x = torch.stack(padded_tensors)
-    return x,torch.tensor(y).int()
+    return x,torch.tensor(y).int(),{'lengths':lengths}
 
-
+def get_stats(dataset):
+    """
+    to get the basic stats of the dataset
+    """
+    seq_lengths = []
+    max_len = 0
+    for data in dataset:
+        seq_lengths.append(data[0].shape[0])   
+    seq_lengths = np.array(seq_lengths)
+    data_stats = {"mean":np.mean(seq_lengths),
+                "median":np.median(seq_lengths),
+                "max":np.max(seq_lengths),
+                "min":np.min(seq_lengths),
+                "No.datapoints":len(dataset)}
+    return data_stats
 
 def create_events_dvs_gesture_frame_classification_dataset(
     cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
@@ -380,6 +393,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
     crop_events: int = None,
     slice_by: str = "time",
     slice_dataset: bool = True,
+    pad_option: str = "median",
 ) -> Data:
     """
     creates a view of the DVS Gesture dataset
@@ -433,6 +447,8 @@ def create_events_dvs_gesture_frame_classification_dataset(
         metadata_path = f"_{slice_by}_{overlap}_{event_count}_" + tr_str
         event_transform = tonic.transforms.ToFrame(sensor_size=tonic.datasets.DVSGesture.sensor_size, event_count=event_count,include_incomplete=False)
         dataset = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=event_transform, target_transform=None)
+        data_stats = get_stats(dataset)
+        train_pad_length= data_stats[pad_option]
         train_size = int(split * len(dataset))
         val_size = len(dataset) - train_size
         train_dataset_sliced, val_dataset_sliced = torch.utils.data.random_split(dataset, [train_size, val_size])
@@ -469,6 +485,8 @@ def create_events_dvs_gesture_frame_classification_dataset(
             dataset = tonic.datasets.DVSGesture(
                 save_to=cache_dir, train=True, transform=transform, target_transform=None
             )
+            data_stats = get_stats(dataset)
+            train_pad_length= int(data_stats[pad_option])
             train_size = int(split * len(dataset))
             val_size = len(dataset) - train_size
             train_dataset_sliced, val_dataset_sliced = torch.utils.data.random_split(dataset, [train_size, val_size])
@@ -484,18 +502,19 @@ def create_events_dvs_gesture_frame_classification_dataset(
                 19.0  # commented to save time, re calculate if min_time_window changes
             )
         else:
-            data_max = (
-                76.0  # TODO - try not to hardcode- efficiently calculate data_max
-            )
-        # i=0
-        # for data, _ in train_dataset_timesliced:
-        #       temp_max = data.max()
-        #       data_max = temp_max if temp_max > data_max else data_max
-        #       i=i+1
+            # data_max = (
+            #     76.0  # TODO - try not to hardcode- efficiently calculate data_max
+            # )
+            i=0
+            data_max = 0
+            for data, _ in train_dataset_sliced:
+                temp_max = data.max()
+                data_max = temp_max if temp_max > data_max else data_max
+                i=i+1
 
-        # for data, _ in val_dataset_timesliced:
-        #       temp_max = data.max()
-        #       data_max = temp_max if temp_max > data_max else data_max
+            for data, _ in val_dataset_sliced:
+                temp_max = data.max()
+                data_max = temp_max if temp_max > data_max else data_max
 
         print(f"Max train value: {data_max}")
         norm_transform = torchvision.transforms.Lambda(lambda x: x / data_max)
@@ -564,7 +583,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
     print(f"Loaded val dataset with {len(val_dataset.dataset)} samples")
     print(f"Loaded test dataset with {len(test_dataset)} samples")
     print(f"Loaded sliced test dataset with {len(cached_test_dataset_time)} samples")
-    # os.makedirs(os.path.join(opt.cache, 'test'), exist_ok=True)
+    test_pad_length = train_pad_length # Currently using same pad sequence length for both train and validation
     return Data(
         train_dataset,
         val_dataset,

@@ -88,6 +88,7 @@ def train(args):
                 crop_events=args.max_events_per_sample,
                 slice_by = args.slicer_type,
                 slice_dataset = args.slice_dataset,
+                pad_option=args.pad_option
             )
     else:
         data = create_dataset_fn(

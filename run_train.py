@@ -111,5 +111,16 @@ if __name__ == "__main__":
 						)
 	parser.add_argument("--slice_dataset", type=str2bool, default=True,
 						help="Choose to slice the data to create a larger dataset. Supports only slicer_type=time")
+	parser.add_argument("--pad_option", type=str, default="median", choices=['mean',
+																			'median',
+																			'max',
+																			'min',
+																			],
+						help="Pad sequence options: \\ " \
+			   	"mean:      pad all sequences to mean of train dataset sequence lengths \\" \
+	  	       	"median:    pad all sequences to median of train dataset sequence lengths \\" \
+				"min:       pad all sequences to min of train dataset sequence lengths \\" \
+				"max:       pad all sequences to max of train dataset sequence lengths \\" \
+						)
 	
 	train(parser.parse_args())
