@@ -237,6 +237,7 @@ def create_events_dvs_gesture_classification_dataset(
 		max_angle: float = 10,
 		max_scale: float = 1.5,
 		max_drop_chunk: float = 0.1,
+		validate_on_test: bool = False,
 		**kwargs
 ) -> Tuple[DataLoader, DataLoader, DataLoader, Data]:
 	"""
@@ -283,16 +284,21 @@ def create_events_dvs_gesture_classification_dataset(
 	TrainData = partial(tonic.datasets.DVSGesture, save_to=cache_dir, train=True)
 	TestData = partial(tonic.datasets.DVSGesture, save_to=cache_dir, train=False)
 
-	# create train validation split
-	val_data = TrainData(transform=test_transforms)
-	val_length = int(0.2 * len(val_data))
-	indices = torch.randperm(len(val_data), generator=rng)
-	val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
+	# create validation set
+	if validate_on_test:
+		print("[*] WARNING: Using test set for validation")
+		val_data = TestData(transform=test_transforms)
+	else:
+		# create train validation split
+		val_data = TrainData(transform=test_transforms)
+		val_length = int(0.2 * len(val_data))
+		indices = torch.randperm(len(val_data), generator=rng)
+		val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
 
 	# if slice event count is given, train on slices of the training data
 	if slice_events > 0:
 		slicer = tonic.slicers.SliceByEventCount(event_count=slice_events, overlap=slice_events // 2, include_incomplete=True)
-		train_subset = torch.utils.data.Subset(TrainData(), indices[:-val_length])
+		train_subset = torch.utils.data.Subset(TrainData(), indices[:-val_length]) if not validate_on_test else TrainData()
 		train_data = tonic.sliced_dataset.SlicedDataset(
 			dataset=train_subset,
 			slicer=slicer,
@@ -300,7 +306,7 @@ def create_events_dvs_gesture_classification_dataset(
 			metadata_path=None
 		)
 	else:
-		train_data = torch.utils.data.Subset(TrainData(transform=train_transforms), indices[:-val_length])
+		train_data = torch.utils.data.Subset(TrainData(transform=train_transforms), indices[:-val_length])  if not validate_on_test else TrainData(transform=train_transforms)
 
 	# Always evaluate on the full sequences
 	test_data = TestData(transform=test_transforms)
@@ -309,7 +315,7 @@ def create_events_dvs_gesture_classification_dataset(
 	train_collate_fn = partial(
 			event_stream_collate_fn,
 			resolution=new_sensor_size[:2],
-			pad_unit=pad_unit if slice_events == 0 else slice_events,
+			pad_unit=slice_events if slice_events < pad_unit else pad_unit,
 		)
 	eval_collate_fn = partial(
 			event_stream_collate_fn,
