@@ -130,5 +130,7 @@ if __name__ == "__main__":
 						help="seed randomness")
 	parser.add_argument("--time_window", type=int, default=10000,
 						help="time window for frames")
+	parser.add_argument('--fix_timesteps', action='store_true', 
+                        help='fix time steps for event based ssc/shd dataset')
  
 	train(parser.parse_args())

@@ -82,14 +82,17 @@ def make_data_loader(dset,
 									   drop_last=drop_last, generator=rng)
 
 
-def event_stream_collate_fn(batch, resolution, max_time=None):
+def event_stream_collate_fn(batch, resolution, max_time=None, fix_timesteps=False):
 	# x are inputs, y are targets, z are aux data
 	x, y, *z = zip(*batch)
 	assert len(z) == 0
 
 	# set tonic specific items
-	timesteps = [torch.tensor(e['t'].copy()) for e in x]
-
+	if not fix_timesteps:
+		timesteps = [torch.tensor(e['t'].copy()) for e in x]
+	else:
+		timesteps = [torch.arange(0, e.shape[0]*1000, 1000, dtype=torch.long) for e in x]
+		
 	# process tokens for single input dim (e.g. audio)
 	if len(resolution) == 1:
 		tokens = [torch.tensor(e['x']).int() for e in x]
@@ -185,6 +188,7 @@ def create_events_shd_classification_dataset(
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
 		validate_on_test: bool = False,
+  		fix_timesteps: bool = False,
 		**kwargs
 ) -> Data:
 	"""
@@ -227,7 +231,7 @@ def create_events_shd_classification_dataset(
 
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=(700,)),
+		collate_fn=partial(event_stream_collate_fn, resolution=(700,), fix_timesteps=fix_timesteps),
 		batch_size=batch_size, eval_batch_size=eval_batch_size,
 		rng=rng, num_workers=num_workers, shuffle_training=True
 	)
@@ -312,6 +316,7 @@ def create_events_ssc_classification_dataset(
 		noise: int = 100,
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
+  		fix_timesteps: bool = False,
 		**kwargs
 ) -> Data:
 	"""
@@ -344,7 +349,7 @@ def create_events_ssc_classification_dataset(
 
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		collate_fn=partial(event_stream_collate_fn, resolution=(700,)),
+		collate_fn=partial(event_stream_collate_fn, resolution=(700,), fix_timesteps=fix_timesteps),
 		batch_size=batch_size, eval_batch_size=eval_batch_size,
 		rng=rng, num_workers=num_workers, shuffle_training=True
 	)

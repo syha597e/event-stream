@@ -61,7 +61,8 @@ def train(args):
         time_skew=args.time_skew,
         downsampling=args.downsampling,
         validate_on_test=args.validate_on_test,
-        time_window=args.time_window
+        time_window=args.time_window,
+        fix_timesteps=args.fix_timesteps,
     )
 
     print(f"[*] Starting S5 Training on `{args.dataset}` =>> Initializing...")
