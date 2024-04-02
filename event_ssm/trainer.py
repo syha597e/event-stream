@@ -179,7 +179,6 @@ class TrainerModule:
             eval_metrics = self.eval_model(
                 val_loader,
                 log_prefix='Performance/Validation',
-                world_size=self.world_size
             )
 
             self.on_validation_epoch_end(eval_metrics)
@@ -202,7 +201,6 @@ class TrainerModule:
             test_metrics = self.eval_model(
                 test_loader,
                 log_prefix='Performance/Test',
-                world_size=1
             )
             self.save_metrics('test', test_metrics)
             self.best_eval_metrics.update(test_metrics)
@@ -279,8 +277,7 @@ class TrainerModule:
     def eval_model(
             self,
             data_loader: Iterator,
-            world_size: int,
-            log_prefix: Optional[str] = ''
+            log_prefix: Optional[str] = '',
     ) -> Dict[str, Any]:
         """
         Evaluates the model on a dataset.
