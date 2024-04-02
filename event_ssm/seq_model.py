@@ -15,7 +15,6 @@ class StackedEncoderModel(nn.Module):
             n_layers    (int32):    the number of S5 layers to stack
             activation  (string):   Type of activation function to use
             dropout     (float32):  dropout rate
-            training    (bool):     whether in training mode or not
             prenorm     (bool):     apply prenorm if true or postnorm if false
             batchnorm   (bool):     apply batchnorm if true or layernorm if false
             bn_momentum (float32):  the batchnorm momentum if batchnorm is used
@@ -33,7 +32,6 @@ class StackedEncoderModel(nn.Module):
     num_embeddings: int = 0
     activation: str = "gelu"
     dropout: float = 0.0
-    training: bool = True
     prenorm: bool = False
     batchnorm: bool = False
     bn_momentum: float = 0.9
@@ -77,7 +75,6 @@ class StackedEncoderModel(nn.Module):
                     d_ssm=d_ssm,
                     block_size=self.block_size,
                     activation=self.activation,
-                    training=self.training,
                     prenorm=self.prenorm,
                     batchnorm=self.batchnorm,
                     bn_momentum=self.bn_momentum,
@@ -89,7 +86,7 @@ class StackedEncoderModel(nn.Module):
         self.layers = layers
         self.total_downsampling = total_downsampling
 
-    def __call__(self, x, integration_timesteps):
+    def __call__(self, x, integration_timesteps, train: bool):
         """
         Compute the LxH output of the stacked encoder given an Lxd_input
         input sequence.
@@ -101,7 +98,7 @@ class StackedEncoderModel(nn.Module):
         x = self.encoder(x)
         for i, layer in enumerate(self.layers):
             # apply layer SSM
-            x, integration_timesteps = layer(x, integration_timesteps)
+            x, integration_timesteps = layer(x, integration_timesteps, train=train)
         return x, integration_timesteps
 
 
@@ -166,13 +163,12 @@ class ClassificationModel(nn.Module):
     across the sequence length, a linear decoder, and a softmax operation.
         Args:
             ssm         (nn.Module): the SSM to be used (i.e. S5 ssm)
-            d_output     (int32):    the output dimension, i.e. the number of classes
+            num_classes (int32):    the output dimension, i.e. the number of classes
             d_model     (int32):    this is the feature size of the layer inputs and outputs
                         we usually refer to this size as H
             n_layers    (int32):    the number of S5 layers to stack
             activation  (string):   Type of activation function to use
             dropout     (float32):  dropout rate
-            training    (bool):     whether in training mode or not
             mode        (str):      Options: [pool: use mean pooling, last: just take
                                                                        the last state]
             prenorm     (bool):     apply prenorm if true or postnorm if false
@@ -185,16 +181,15 @@ class ClassificationModel(nn.Module):
     ssm: nn.Module
     discretization: str
     discretization_first_layer: str
-    d_output: int
+    num_classes: int
     d_model: int
     d_ssm: int
     block_size: int
-    n_layers: int
+    num_layers: int
     num_embeddings: int = 0
-    activation: str = "gelu"
+    activation_fn: str = "gelu"
     dropout: float = 0.2
-    training: bool = True
-    mode: str = "pool"
+    classification_mode: str = "pool"
     prenorm: bool = False
     batchnorm: bool = False
     bn_momentum: float = 0.9
@@ -215,11 +210,10 @@ class ClassificationModel(nn.Module):
             d_model=self.d_model,
             d_ssm=self.d_ssm,
             block_size=self.block_size,
-            n_layers=self.n_layers,
+            n_layers=self.num_layers,
             num_embeddings=self.num_embeddings,
-            activation=self.activation,
+            activation=self.activation_fn,
             dropout=self.dropout,
-            training=self.training,
             prenorm=self.prenorm,
             batchnorm=self.batchnorm,
             bn_momentum=self.bn_momentum,
@@ -229,31 +223,33 @@ class ClassificationModel(nn.Module):
             pooling_mode=self.pooling_mode,
             state_expansion_factor=self.state_expansion_factor
         )
-        self.decoder = nn.Dense(self.d_output)
+        self.decoder = nn.Dense(self.num_classes)
 
-    def __call__(self, x, integration_timesteps):
+    def __call__(self, x, integration_timesteps, length, train=True):
         """
-        Compute the size d_output log softmax output given a
+        Compute the size num_classes log softmax output given a
         Lxd_input input sequence.
         Args:
              x (float32): input sequence (L, d_input)
         Returns:
-            output (float32): (d_output)
+            output (float32): (num_classes)
         """
-        x, length = x  # input consists of data and prepadded seq lens
         # if the sequence is downsampled we need to adjust the length
         length = length // self.encoder.total_downsampling
 
-        x, integration_timesteps = self.encoder(x, integration_timesteps)
-        if self.mode in ["pool"]:
+        # run encoder backbone
+        x, integration_timesteps = self.encoder(x, integration_timesteps, train=train)
+
+        # apply classification head
+        if self.classification_mode in ["pool"]:
             # Perform mean pooling across time
             x = masked_meanpool(x, length)
 
-        elif self.mode in ["timepool"]:
+        elif self.classification_mode in ["timepool"]:
             # Perform mean pooling across time weighted by integration time steps
             x = masked_timepool(x, length, integration_timesteps)
 
-        elif self.mode in ["last"]:
+        elif self.classification_mode in ["last"]:
             # Just take the last state
             x = x[-1]
         else:
@@ -266,7 +262,7 @@ class ClassificationModel(nn.Module):
 # Here we call vmap to parallelize across a batch of input sequences
 BatchClassificationModel = nn.vmap(
     ClassificationModel,
-    in_axes=(0, 0),
+    in_axes=(0, 0, 0, None),
     out_axes=0,
     variable_axes={"params": None, "dropout": None, 'batch_stats': None, "cache": 0, "prime": None},
     split_rngs={"params": False, "dropout": True}, axis_name='batch')

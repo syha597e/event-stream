@@ -1,0 +1,26 @@
+# @package _global_
+
+model:
+  ssm_init:
+    C_init: lecun_normal
+    dt_min: 0.005
+    dt_max: 0.1
+    conj_sym: true
+    clip_eigs: false
+  ssm:
+    discretization: state_zoh
+    discretization_first_layer: state_zoh
+    d_model: 64
+    d_ssm: 64
+    block_size: 8
+    num_layers: 6
+    activation_fn: half_glu2
+    dropout: 0.27
+    classification_mode: timepool
+    prenorm: true
+    batchnorm: true
+    bn_momentum: 0.95
+    pooling_stride: 1
+    pooling_every_n_layers: 99
+    pooling_mode: timepool
+    state_expansion_factor: 1

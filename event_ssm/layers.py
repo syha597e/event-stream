@@ -1,5 +1,6 @@
 from flax import linen as nn
 import jax
+from functools import partial
 
 
 class EventPooling(nn.Module):
@@ -47,7 +48,6 @@ class SequenceLayer(nn.Module):
             d_model     (int32):    this is the feature size of the layer inputs and outputs
                                     we usually refer to this size as H
             activation  (string):   Type of activation function to use
-            training    (bool):     whether in training mode or not
             prenorm     (bool):     apply prenorm if true or postnorm if false
             batchnorm   (bool):     apply batchnorm if true or layernorm if false
             bn_momentum (float32):  the batchnorm momentum if batchnorm is used
@@ -63,7 +63,6 @@ class SequenceLayer(nn.Module):
     d_ssm: int
     block_size: int
     activation: str = "gelu"
-    training: bool = True
     prenorm: bool = False
     batchnorm: bool = False
     bn_momentum: float = 0.90
@@ -86,20 +85,18 @@ class SequenceLayer(nn.Module):
             self.skip_connection = nn.Dense(self.d_model_out)
 
         if self.batchnorm:
-            self.norm = nn.BatchNorm(use_running_average=not self.training,
-                                     momentum=self.bn_momentum, axis_name='batch')
+            self.norm = nn.BatchNorm(momentum=self.bn_momentum, axis_name='batch')
         else:
             self.norm = nn.LayerNorm()
 
         self.drop = nn.Dropout(
             self.dropout,
-            broadcast_dims=[0],
-            deterministic=not self.training,
+            broadcast_dims=[0]
         )
 
         self.pool = EventPooling(stride=self.pooling_stride, mode=self.pooling_mode)
 
-    def __call__(self, x, integration_timesteps):
+    def __call__(self, x, integration_timesteps, train: bool):
         """
         Compute the LxH output of S5 layer given an LxH input.
         Args:
@@ -110,24 +107,29 @@ class SequenceLayer(nn.Module):
         skip = x
 
         if self.prenorm:
-            x = self.norm(x)
+            if self.batchnorm:
+                x = self.norm(x, use_running_average=not train)
+            else:
+                x = self.norm(x)
+
         x = self.seq(x, integration_timesteps)
 
+        apply_dropout = partial(self.drop, deterministic=not train)
         if self.activation in ["full_glu"]:
-            x = self.drop(nn.gelu(x))
+            x = apply_dropout(nn.gelu(x))
             x = self.out1(x) * jax.nn.sigmoid(self.out2(x))
-            x = self.drop(x)
+            x = apply_dropout(x)
         elif self.activation in ["half_glu1"]:
-            x = self.drop(nn.gelu(x))
+            x = apply_dropout(nn.gelu(x))
             x = x * jax.nn.sigmoid(self.out2(x))
-            x = self.drop(x)
+            x = apply_dropout(x)
         elif self.activation in ["half_glu2"]:
             # Only apply GELU to the gate input
-            x1 = self.drop(nn.gelu(x))
+            x1 = apply_dropout(nn.gelu(x))
             x = x * jax.nn.sigmoid(self.out2(x1))
-            x = self.drop(x)
+            x = apply_dropout(x)
         elif self.activation in ["gelu"]:
-            x = self.drop(nn.gelu(x))
+            x = apply_dropout(nn.gelu(x))
         else:
             raise NotImplementedError(
                    "Activation: {} not implemented".format(self.activation))
@@ -138,7 +140,13 @@ class SequenceLayer(nn.Module):
         if self.d_model_in != self.d_model_out:
             skip = self.skip_connection(skip)
 
+        # apply skip connection
         x = skip + x
+
         if not self.prenorm:
-            x = self.norm(x)
+            if self.batchnorm:
+                x = self.norm(x, use_running_average=not train)
+            else:
+                x = self.norm(x)
+
         return x, integration_timesteps
