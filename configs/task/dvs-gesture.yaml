@@ -14,18 +14,19 @@ training:
   noise: 0.0
   drop_event: 0.1
   time_skew: 1.2
-  max_roll: 4
-  max_angle: 5
+  max_roll: 16
+  max_angle: 10
   max_scale: 1.1
   max_drop_chunk: 0.1
   pad_unit: 524288
   slice_events: 262144
+  validate_on_test: false
 
 optimizer:
   ssm_base_lr: 5e-5
   lr_factor: 4
   warmup_epochs: 3
   ssm_weight_decay: 0.0
-  weight_decay: 5e-2
+  weight_decay: 1e-2
   schedule: cosine
   accumulation_steps: 4
