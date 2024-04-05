@@ -61,9 +61,6 @@ def train(args):
             padded = False
             tokenized = False
             retrieval = False
-    import pdb
-    pdb.set_trace()
-
     if args.dataset in ["shd-classification", "ssc-classification"]:
         num_embeddings = 700
     elif args.dataset in ["dvs-gesture-classification"]:
