@@ -523,7 +523,6 @@ def create_events_dvs_gesture_frame_classification_dataset(
     if use_pretrained:
         post_cache_transform = tonic.transforms.Compose(
             [
-                norm_transform,
                 torch.tensor,
                 RandomResizedCrop(
                     tonic.datasets.DVSGesture.sensor_size[:-1],
