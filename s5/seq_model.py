@@ -23,10 +23,11 @@ def prep_image_for_transferlearning(image, pad_size):
     # Pad dimensions for each axis
     pad_width = ((pad_size[0], pad_size[0]), (pad_size[1], pad_size[1]), (0, 0))
 
-    # Pad image
+    # Pad image and normalize based on imagenet dataset
     padded_image = np.pad(image, pad_width, mode="constant")
     padded_image = np.repeat(padded_image[:, :, np.newaxis, :], 3, axis=2)
-    return padded_image.reshape(1,3,224, 224)
+    normalised_image = np.stack((padded_image[:,:,0,:]-123.68/58.393,padded_image[:,:,1,:]-116.779/57.12,padded_image[:,:,2,:]-103.939/57.375),axis=0)
+    return normalised_image.reshape(1,3,224, 224)
 
 
 def merge_events(data, method="mean", flatten=False):
@@ -56,8 +57,6 @@ class CNNModule(nn.Module):
             return out.reshape(
                 -1,
             )
-
-
         else:
             x = nn.Conv(features=64, kernel_size=(11, 11), strides=4, padding=2)(x)
             x = nn.relu(x)

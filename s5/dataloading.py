@@ -394,6 +394,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
     slice_by: str = "time",
     slice_dataset: bool = True,
     pad_option: str = "median",
+    use_pretrained: bool = False,
 ) -> Data:
     """
     creates a view of the DVS Gesture dataset
@@ -519,7 +520,22 @@ def create_events_dvs_gesture_frame_classification_dataset(
     else:
         norm_transform = None
 
-    if augmentation:  # Try torch augmentation #CUT-MIX augmentation
+    if use_pretrained:
+        post_cache_transform = tonic.transforms.Compose(
+            [
+                norm_transform,
+                torch.tensor,
+                RandomResizedCrop(
+                    tonic.datasets.DVSGesture.sensor_size[:-1],
+                    scale=(0.6, 1.0),
+                    interpolation=torchvision.transforms.InterpolationMode.NEAREST,
+                ),
+                RandomPerspective(),
+                RandomRotation(25),
+            ]
+        )
+
+    elif augmentation:  # Try torch augmentation #CUT-MIX augmentation
         post_cache_transform = tonic.transforms.Compose(
             [
                 norm_transform,
@@ -545,11 +561,17 @@ def create_events_dvs_gesture_frame_classification_dataset(
         transform=post_cache_transform,
         cache_path=os.path.join(cache, "diskcache_val" + metadata_path),
     )
-    cached_test_dataset_time = DiskCachedDataset(
-        test_dataset_sliced,
-        transform=norm_transform,
-        cache_path=os.path.join(cache, "diskcache_test" + metadata_path),
-    )
+    if use_pretrained:
+        cached_test_dataset_time = DiskCachedDataset(
+            test_dataset_sliced,
+            cache_path=os.path.join(cache, "diskcache_test" + metadata_path),
+        )
+    else:
+        cached_test_dataset_time = DiskCachedDataset(
+            test_dataset_sliced,
+            transform=norm_transform,
+            cache_path=os.path.join(cache, "diskcache_test" + metadata_path),
+        )
 
     kwargs = {"num_workers": 1, "pin_memory": True} if torch.cuda.is_available() else {}
     collate_fn = tonic.collation.PadTensors(batch_first=True) if slice_dataset else partial(frame_collate_fn,max_length=train_pad_length)

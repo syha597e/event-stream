@@ -10,6 +10,8 @@ from .dataloading import Datasets
 from .seq_model import BatchClassificationModel, RetrievalModel
 from .ssm import init_S5SSM
 from .ssm_init import make_DPLR_HiPPO
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 def train(args):
     """
     Main function to train over a certain number of epochs
@@ -44,26 +46,25 @@ def train(args):
 
     # Dataset dependent logic
     if args.dataset in [
-        "imdb-classification",
-        "listops-classification",
-        "aan-classification",
         "shd-classification",
         "ssc-classification",
         "dvs-gesture-classification",
     ]:
         padded = True
         tokenized = True
-        if args.dataset in ["aan-classification"]:
-            # Use retreival model for document matching
-            retrieval = True
-            print("Using retrieval model for document matching")
-        else:
-            retrieval = False
+        retrieval = False
 
     else:
-        padded = True
-        tokenized = False
-        retrieval = False
+        if (args.dataset in ["dvs-frame-gesture-classification"]) & (args.slice_dataset==False):
+            padded = True
+            tokenized = False
+            retrieval = False
+        else:
+            padded = False
+            tokenized = False
+            retrieval = False
+    import pdb
+    pdb.set_trace()
 
     if args.dataset in ["shd-classification", "ssc-classification"]:
         num_embeddings = 700
@@ -87,7 +88,8 @@ def train(args):
                 crop_events=args.max_events_per_sample,
                 slice_by = args.slicer_type,
                 slice_dataset = args.slice_dataset,
-                pad_option=args.pad_option
+                pad_option=args.pad_option,
+                use_pretrained = args.use_pretrained
             )
     else:
         data = create_dataset_fn(
