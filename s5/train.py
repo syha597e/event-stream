@@ -84,7 +84,8 @@ def train(args):
                 slice_by = args.slicer_type,
                 slice_dataset = args.slice_dataset,
                 pad_option=args.pad_option,
-                use_pretrained = args.use_pretrained
+                use_pretrained = args.use_pretrained,
+                normalize = args.normalize,
             )
     else:
         data = create_dataset_fn(

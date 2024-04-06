@@ -395,6 +395,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
     slice_dataset: bool = True,
     pad_option: str = "median",
     use_pretrained: bool = False,
+    normalize:bool=False,
 ) -> Data:
     """
     creates a view of the DVS Gesture dataset
@@ -520,7 +521,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
     else:
         norm_transform = None
 
-    if use_pretrained:
+    if use_pretrained or not normalize:
         post_cache_transform = tonic.transforms.Compose(
             [
                 torch.tensor,
@@ -536,20 +537,20 @@ def create_events_dvs_gesture_frame_classification_dataset(
 
     elif augmentation:  # Try torch augmentation #CUT-MIX augmentation
         post_cache_transform = tonic.transforms.Compose(
-            [
-                norm_transform,
-                torch.tensor,
-                RandomResizedCrop(
-                    tonic.datasets.DVSGesture.sensor_size[:-1],
-                    scale=(0.6, 1.0),
-                    interpolation=torchvision.transforms.InterpolationMode.NEAREST,
-                ),
-                RandomPerspective(),
-                RandomRotation(25),
-            ]
-        )
-    else:
-        post_cache_transform = norm_transform
+                [
+                    norm_transform,
+                    torch.tensor,
+                    RandomResizedCrop(
+                        tonic.datasets.DVSGesture.sensor_size[:-1],
+                        scale=(0.6, 1.0),
+                        interpolation=torchvision.transforms.InterpolationMode.NEAREST,
+                    ),
+                    RandomPerspective(),
+                    RandomRotation(25),
+                ]
+            )
+    else: #TODO - clean the if-else statements
+        pass
     train_cached_dataset = DiskCachedDataset(
         train_dataset_sliced,
         transform=post_cache_transform,
@@ -560,7 +561,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
         transform=post_cache_transform,
         cache_path=os.path.join(cache, "diskcache_val" + metadata_path),
     )
-    if use_pretrained:
+    if use_pretrained or not normalize:
         cached_test_dataset_time = DiskCachedDataset(
             test_dataset_sliced,
             cache_path=os.path.join(cache, "diskcache_test" + metadata_path),

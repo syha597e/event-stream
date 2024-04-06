@@ -122,5 +122,8 @@ if __name__ == "__main__":
 				"min:       pad all sequences to min of train dataset sequence lengths \\" \
 				"max:       pad all sequences to max of train dataset sequence lengths \\" \
 						)
-	
+	parser.add_argument("--normalize", type=str2bool, default=False,
+						help="Input normalisation of the data. Set to False if using pretrained models")
 	train(parser.parse_args())
+
+
