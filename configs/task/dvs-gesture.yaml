@@ -9,7 +9,7 @@ training:
   num_epochs: 30
   per_device_batch_size: 16
   per_device_eval_batch_size: 4
-  num_workers: 6
+  num_workers: 5
   time_jitter: 1
   noise: 0.0
   drop_event: 0.1
