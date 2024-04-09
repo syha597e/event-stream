@@ -10,7 +10,7 @@ training:
   per_device_batch_size: 64
   per_device_eval_batch_size: 128
   num_workers: 6
-  time_jitter: 3
+  time_jitter: 1
   spatial_jitter: 1.0
   noise: 100
   drop_event: 0.1
