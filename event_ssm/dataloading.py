@@ -26,7 +26,7 @@ class Data:
 		self.train_size = train_size
 
 
-def event_stream_collate_fn(batch, resolution, pad_unit):
+def event_stream_collate_fn(batch, resolution, pad_unit, no_time_information=False):
 	# x are inputs, y are targets, z are aux data
 	x, y, *z = zip(*batch)
 	assert len(z) == 0
@@ -38,7 +38,10 @@ def event_stream_collate_fn(batch, resolution, pad_unit):
 	#
 
 	# integration time steps are the difference between two consequtive time stamps
-	timesteps = [np.diff(e['t']) for e in x]
+	if no_time_information:
+		timesteps = [np.ones_like(e['t'][:-1]) for e in x]
+	else:
+		timesteps = [np.diff(e['t']) for e in x]
 
 	# NOTE: since timesteps are deltas, their length is L - 1, and we have to remove the last token in the following
 
@@ -101,6 +104,7 @@ def create_events_shd_classification_dataset(
 		time_skew: float = 1.1,
 		pad_unit: int = 8192,
 		validate_on_test: bool = False,
+		no_time_information: bool = False,
 		**kwargs
 ) -> Tuple[DataLoader, DataLoader, DataLoader, Data]:
 	"""
@@ -143,7 +147,7 @@ def create_events_shd_classification_dataset(
 		train_data = torch.utils.data.Subset(train_data, indices[:-val_length])
 		val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
 
-	collate_fn = partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit)
+	collate_fn = partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit, no_time_information=no_time_information)
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
 		train_collate_fn=collate_fn,
@@ -170,6 +174,7 @@ def create_events_ssc_classification_dataset(
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
 		pad_unit: int = 8192,
+		no_time_information: bool = False,
 		**kwargs
 ) -> Tuple[DataLoader, DataLoader, DataLoader, Data]:
 	"""
@@ -202,7 +207,7 @@ def create_events_ssc_classification_dataset(
 	val_data = tonic.datasets.SSC(save_to=cache_dir, split='valid')
 	test_data = tonic.datasets.SSC(save_to=cache_dir, split='test')
 
-	collate_fn = partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit)
+	collate_fn = partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit, no_time_information=no_time_information)
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
 		train_collate_fn=collate_fn,
