@@ -10,6 +10,8 @@ from .dataloading import Datasets
 from .seq_model import BatchClassificationModel, RetrievalModel
 from .ssm import init_S5SSM
 from .ssm_init import make_DPLR_HiPPO
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 def train(args):
     """
     Main function to train over a certain number of epochs
@@ -86,12 +88,15 @@ def train(args):
                 pad_option=args.pad_option,
                 use_pretrained = args.use_pretrained,
                 normalize = args.normalize,
+                validate_on_test = args.validate_on_test
             )
     else:
         data = create_dataset_fn(
                 args.dir_name, seed=args.jax_seed, bsz=args.bsz,
                 crop_events=args.max_events_per_sample
             )
+    import pdb
+    pdb.set_trace()
     print(f"[*] Starting S5 Training on `{args.dataset}` =>> Initializing...")
 
     # Initialize state matrix A using approximation to HiPPO-LegS matrix

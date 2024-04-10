@@ -396,6 +396,7 @@ def create_events_dvs_gesture_frame_classification_dataset(
     pad_option: str = "median",
     use_pretrained: bool = False,
     normalize:bool=False,
+    validate_on_test:bool=False,
 ) -> Data:
     """
     creates a view of the DVS Gesture dataset
@@ -447,50 +448,51 @@ def create_events_dvs_gesture_frame_classification_dataset(
         event_count = 1000 # TODO - try with different counts ?
         metadata_path = f"_{slice_by}_{overlap}_{event_count}_" + tr_str
         event_transform = tonic.transforms.ToFrame(sensor_size=tonic.datasets.DVSGesture.sensor_size, event_count=event_count,include_incomplete=False)
-        dataset = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=event_transform, target_transform=None)
-        data_stats = get_stats(dataset)
+        train_dataset = tonic.datasets.DVSGesture(save_to=cache_dir, train=True, transform=event_transform, target_transform=None)
+        data_stats = get_stats(train_dataset)
         train_pad_length= int(data_stats[pad_option])
-        train_size = int(split * len(dataset))
-        val_size = len(dataset) - train_size
-        train_dataset_sliced, val_dataset_sliced = torch.utils.data.random_split(dataset, [train_size, val_size])
-        test_dataset_sliced = tonic.datasets.DVSGesture(save_to=cache_dir, train=False, transform=event_transform, target_transform=None)
+        if not validate_on_test:
+            train_size = int(split * len(train_dataset))
+            val_size = len(train_dataset) - train_size
+            train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+        test_dataset = tonic.datasets.DVSGesture(save_to=cache_dir, train=False, transform=event_transform, target_transform=None)
 
     elif slice_by == "time": #TODO - without slicing by time ?
         if slice_dataset:
             train_pad_length,test_pad_length = 67,67
             metadata_path = f"_{min_time_window}_{overlap}_{frame_time}_" + tr_str
-            dataset = tonic.datasets.DVSGesture(
+            train_dataset = tonic.datasets.DVSGesture(
                 save_to=cache_dir, train=True, transform=None, target_transform=None
-            )
-            train_size = int(split * len(dataset))
-            val_size = len(dataset) - train_size
-            train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
-            test_dataset = tonic.datasets.DVSGesture(
-                save_to=cache_dir, train=False, transform=None, target_transform=None
             )
             slicer_by_time = SliceByTime(
                 time_window=min_time_window, overlap=overlap, include_incomplete=False
             )
-            train_dataset_sliced = SlicedDataset(
-                train_set, slicer=slicer_by_time, transform=transform, metadata_path=None
+            if not validate_on_test:
+                train_size = int(split * len(train_dataset))
+                val_size = len(train_dataset) - train_size
+                train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+                val_dataset = SlicedDataset(val_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None)
+            train_dataset = SlicedDataset(
+                train_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None
             )
-            val_dataset_sliced = SlicedDataset(
-                val_set, slicer=slicer_by_time, transform=transform, metadata_path=None
+            test_dataset = tonic.datasets.DVSGesture(
+                save_to=cache_dir, train=False, transform=None, target_transform=None
             )
-            test_dataset_sliced = SlicedDataset(
+            test_dataset = SlicedDataset(
                 test_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None
             )
         else:
             metadata_path = f"_{min_time_window}_{overlap}_{frame_time}_" + tr_str +"_no_slice"
-            dataset = tonic.datasets.DVSGesture(
+            train_dataset = tonic.datasets.DVSGesture(
                 save_to=cache_dir, train=True, transform=transform, target_transform=None
             )
-            data_stats = get_stats(dataset)
+            data_stats = get_stats(train_dataset)
             train_pad_length= int(data_stats[pad_option])
-            train_size = int(split * len(dataset))
-            val_size = len(dataset) - train_size
-            train_dataset_sliced, val_dataset_sliced = torch.utils.data.random_split(dataset, [train_size, val_size])
-            test_dataset_sliced = tonic.datasets.DVSGesture(
+            if not validate_on_test:
+                train_size = int(split * len(train_dataset))
+                val_size = len(train_dataset) - train_size
+                train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+            test_dataset = tonic.datasets.DVSGesture(
                 save_to=cache_dir, train=False, transform=transform, target_transform=None
             )
     else:
@@ -507,12 +509,12 @@ def create_events_dvs_gesture_frame_classification_dataset(
             # )
             i=0
             data_max = 0
-            for data, _ in train_dataset_sliced:
+            for data, _ in train_dataset:
                 temp_max = data.max()
                 data_max = temp_max if temp_max > data_max else data_max
                 i=i+1
 
-            for data, _ in val_dataset_sliced:
+            for data, _ in val_dataset:
                 temp_max = data.max()
                 data_max = temp_max if temp_max > data_max else data_max
 
@@ -552,23 +554,24 @@ def create_events_dvs_gesture_frame_classification_dataset(
     else: #TODO - clean the if-else statements
         pass
     train_cached_dataset = DiskCachedDataset(
-        train_dataset_sliced,
+        train_dataset,
         transform=post_cache_transform,
         cache_path=os.path.join(cache, "diskcache_train" + metadata_path),
     )
-    val_cached_dataset = DiskCachedDataset(
-        val_dataset_sliced,
-        transform=post_cache_transform,
-        cache_path=os.path.join(cache, "diskcache_val" + metadata_path),
-    )
+    if not validate_on_test:
+        val_cached_dataset = DiskCachedDataset(
+            val_dataset,
+            transform=post_cache_transform,
+            cache_path=os.path.join(cache, "diskcache_val" + metadata_path),
+        )
     if use_pretrained or not normalize:
         cached_test_dataset_time = DiskCachedDataset(
-            test_dataset_sliced,
+            test_dataset,
             cache_path=os.path.join(cache, "diskcache_test" + metadata_path),
         )
     else:
         cached_test_dataset_time = DiskCachedDataset(
-            test_dataset_sliced,
+            test_dataset,
             transform=norm_transform,
             cache_path=os.path.join(cache, "diskcache_test" + metadata_path),
         )
@@ -584,14 +587,17 @@ def create_events_dvs_gesture_frame_classification_dataset(
         drop_last=True,
         **kwargs,
     )
-    val_dataset = DataLoader(
-        val_cached_dataset,
-        batch_size=batch_size,
-        collate_fn=collate_fn,
-        drop_last=True,
-        shuffle=True,
-        **kwargs,
-    )
+    if validate_on_test:
+        val_dataset = None
+    else:
+        val_dataset = DataLoader(
+            val_cached_dataset,
+            batch_size=batch_size,
+            collate_fn=collate_fn,
+            drop_last=True,
+            shuffle=True,
+            **kwargs,
+        )
     test_dataset = DataLoader(
         cached_test_dataset_time,
         batch_size=batch_size,
