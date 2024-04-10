@@ -124,6 +124,8 @@ if __name__ == "__main__":
 						)
 	parser.add_argument("--normalize", type=str2bool, default=False,
 						help="Input normalisation of the data. Set to False if using pretrained models")
+	parser.add_argument("--validate_on_test", type=str2bool, default=True,
+						help="Use test set for validation. If set false 1 % of train set is used for validation")
 	train(parser.parse_args())
 
 
