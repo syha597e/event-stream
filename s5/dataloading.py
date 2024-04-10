@@ -605,10 +605,6 @@ def create_events_dvs_gesture_frame_classification_dataset(
         drop_last=True,
         shuffle=True,
     )
-    print(f"Loaded train dataset with {len(train_dataset.dataset)} samples")
-    print(f"Loaded val dataset with {len(val_dataset.dataset)} samples")
-    print(f"Loaded test dataset with {len(test_dataset)} samples")
-    print(f"Loaded sliced test dataset with {len(cached_test_dataset_time)} samples")
     test_pad_length = train_pad_length # Currently using same pad sequence length for both train and validation
     return Data(
         train_dataset,
