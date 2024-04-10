@@ -20,7 +20,7 @@ model:
     prenorm: true
     batchnorm: false
     bn_momentum: 0.95
-    pooling_stride: 8
+    pooling_stride: 16
     pooling_every_n_layers: 3
     pooling_mode: timepool
     state_expansion_factor: 2

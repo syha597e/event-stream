@@ -1,12 +1,10 @@
 import torch
-import os
 from pathlib import Path
 from typing import Callable, Optional, TypeVar, Dict, Tuple, List, Union
 import tonic
 from functools import partial
 import numpy as np
-import jax
-from event_ssm.transform import Identity, Roll, Rotate, Scale, DropEventChunk, Jitter1D
+from event_ssm.transform import Identity, Roll, Rotate, Scale, DropEventChunk, Jitter1D, OneHotLabels, cut_mix_augmentation
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
@@ -26,16 +24,18 @@ class Data:
 		self.train_size = train_size
 
 
-def event_stream_collate_fn(batch, resolution, pad_unit, no_time_information=False):
+def event_stream_collate_fn(batch, resolution, pad_unit, cut_mix=0.0, no_time_information=False):
 	# x are inputs, y are targets, z are aux data
 	x, y, *z = zip(*batch)
 	assert len(z) == 0
 	batch_size_one = len(x) == 1
 
-	# set labels to numpy array
-	y = np.array(y)
+	# apply cut mix augmentation
+	if np.random.rand() < cut_mix:
+		x, y = cut_mix_augmentation(x, y)
 
-	#
+	# set labels to numpy array
+	y = np.stack(y)
 
 	# integration time steps are the difference between two consequtive time stamps
 	if no_time_information:
@@ -102,6 +102,7 @@ def create_events_shd_classification_dataset(
 		noise: int = 100,
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
+		cut_mix: float = 0.5,
 		pad_unit: int = 8192,
 		validate_on_test: bool = False,
 		no_time_information: bool = False,
@@ -132,8 +133,9 @@ def create_events_shd_classification_dataset(
 		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
 		tonic.transforms.UniformNoise(sensor_size=sensor_size, n=(0, noise))
 	])
+	target_transforms = OneHotLabels(num_classes=20)
 
-	train_data = tonic.datasets.SHD(save_to=cache_dir, train=True, transform=transforms)
+	train_data = tonic.datasets.SHD(save_to=cache_dir, train=True, transform=transforms, target_transform=target_transforms)
 	val_data = tonic.datasets.SHD(save_to=cache_dir, train=True)
 	test_data = tonic.datasets.SHD(save_to=cache_dir, train=False)
 
@@ -150,7 +152,7 @@ def create_events_shd_classification_dataset(
 	collate_fn = partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit, no_time_information=no_time_information)
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		train_collate_fn=collate_fn,
+		train_collate_fn=partial(collate_fn, cut_mix=cut_mix),
 		eval_collate_fn=collate_fn,
 		batch_size=per_device_batch_size * world_size, eval_batch_size=per_device_eval_batch_size * world_size,
 		rng=rng, num_workers=num_workers, shuffle_training=True
@@ -159,6 +161,7 @@ def create_events_shd_classification_dataset(
 		n_classes=20, num_embeddings=700, train_size=len(train_data)
 	)
 	return train_loader, val_loader, test_loader, data
+
 
 def create_events_ssc_classification_dataset(
 		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
@@ -173,6 +176,7 @@ def create_events_ssc_classification_dataset(
 		noise: int = 100,
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
+		cut_mix: float = 0.5,
 		pad_unit: int = 8192,
 		no_time_information: bool = False,
 		**kwargs
@@ -202,15 +206,17 @@ def create_events_ssc_classification_dataset(
 		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
 		tonic.transforms.UniformNoise(sensor_size=sensor_size, n=(0, noise))
 	])
+	target_transforms = OneHotLabels(num_classes=35)
 
-	train_data = tonic.datasets.SSC(save_to=cache_dir, split='train', transform=transforms)
+
+	train_data = tonic.datasets.SSC(save_to=cache_dir, split='train', transform=transforms, target_transform=target_transforms)
 	val_data = tonic.datasets.SSC(save_to=cache_dir, split='valid')
 	test_data = tonic.datasets.SSC(save_to=cache_dir, split='test')
 
 	collate_fn = partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit, no_time_information=no_time_information)
 	train_loader, val_loader, test_loader = event_stream_dataloader(
 		train_data, val_data, test_data,
-		train_collate_fn=collate_fn,
+		train_collate_fn=partial(collate_fn, cut_mix=cut_mix),
 		eval_collate_fn=collate_fn,
 		batch_size=per_device_batch_size * world_size, eval_batch_size=per_device_eval_batch_size * world_size,
 		rng=rng, num_workers=num_workers, shuffle_training=True
@@ -237,6 +243,7 @@ def create_events_dvs_gesture_classification_dataset(
 		noise: int = 100,
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
+		cut_mix: float = 0.5,
 		downsampling: int = 1,
 		max_roll: int = 4,
 		max_angle: float = 10,
@@ -285,6 +292,8 @@ def create_events_dvs_gesture_classification_dataset(
 	test_transforms = tonic.transforms.Compose([
 		tonic.transforms.Downsample(sensor_size=orig_sensor_size, target_size=new_sensor_size[:2]) if downsampling > 1 else Identity(),
 	])
+	target_transforms = OneHotLabels(num_classes=11)
+
 
 	TrainData = partial(tonic.datasets.DVSGesture, save_to=cache_dir, train=True)
 	TestData = partial(tonic.datasets.DVSGesture, save_to=cache_dir, train=False)
@@ -308,10 +317,14 @@ def create_events_dvs_gesture_classification_dataset(
 			dataset=train_subset,
 			slicer=slicer,
 			transform=train_transforms,
+			target_transform=target_transforms,
 			metadata_path=None
 		)
 	else:
-		train_data = torch.utils.data.Subset(TrainData(transform=train_transforms), indices[:-val_length])  if not validate_on_test else TrainData(transform=train_transforms)
+		train_data = torch.utils.data.Subset(
+			TrainData(transform=train_transforms, target_transform=target_transforms),
+			indices[:-val_length]
+		) if not validate_on_test else TrainData(transform=train_transforms)
 
 	# Always evaluate on the full sequences
 	test_data = TestData(transform=test_transforms)
@@ -321,6 +334,7 @@ def create_events_dvs_gesture_classification_dataset(
 			event_stream_collate_fn,
 			resolution=new_sensor_size[:2],
 			pad_unit=slice_events if slice_events < pad_unit else pad_unit,
+			cut_mix=cut_mix
 		)
 	eval_collate_fn = partial(
 			event_stream_collate_fn,

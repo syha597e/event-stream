@@ -9,15 +9,16 @@ training:
   num_epochs: 30
   per_device_batch_size: 16
   per_device_eval_batch_size: 4
-  num_workers: 5
+  num_workers: 4
   time_jitter: 1
   noise: 0.0
   drop_event: 0.1
   time_skew: 1.2
-  max_roll: 16
+  max_roll: 32
   max_angle: 10
   max_scale: 1.1
   max_drop_chunk: 0.1
+  cut_mix: 0.5
   pad_unit: 524288
   slice_events: 65536
   validate_on_test: false

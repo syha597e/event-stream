@@ -140,7 +140,18 @@ class DropEventChunk:
         return events
 
 
-def cut_mix_chunk(events, targets, max_num_events):
+class OneHotLabels:
+    """
+    Convert integer labels to one-hot encoding
+    """
+    def __init__(self, num_classes):
+        self.num_classes = num_classes
+
+    def __call__(self, label):
+        return np.eye(self.num_classes)[label]
+
+
+def cut_mix_augmentation(events, targets):
     """
     Cut and mix two event streams by a random event chunk. Input is a list of event streams.
 
@@ -148,21 +159,45 @@ def cut_mix_chunk(events, targets, max_num_events):
         events (dict): batch of event streams of shape (batch_size, num_events, 4)
         max_num_events (int): maximum number of events to mix
     """
-    lengths = np.array([len(e) for e in events], dtype=np.int32)
-    mix_events = np.random.randint(0, np.minimum(lengths, max_num_events))
+    # get the total time of all events
+    lengths = np.array([e['t'][-1] - e['t'][0] for e in events], dtype=np.float32)
+
+    # get fraction of the event-stream to cut
+    cut_size = np.random.uniform(low=0, high=lengths)
+    start_time = np.random.uniform(low=0, high=lengths - cut_size)
+
+    # a random permutation to mix the events
     rand_index = np.random.permutation(len(events))
 
-    # targets to mix
-    targets_a = targets
-    targets_b = targets[rand_index]
-    lam = mix_events / lengths
-    targets = targets_a * (1 - lam) + targets_b * lam
+    mixed_events = []
+    mixed_targets = []
 
-    # mix samples
-    inds = np.random.randint(np.zeros_like(lengths), lengths - mix_events)
-    cuts = [events[i, inds[i]:inds[i] + mix_events[i]] for i in range(len(events))]
-
+    # cut events from b and mix them with events from a
     for i in range(len(events)):
-        events[i, inds[i]:inds[i] + mix_events[i]] = cuts[rand_index[i]]
+        start, end = start_time[rand_index[i]], start_time[rand_index[i]] + cut_size[rand_index[i]]
+        mask_a = (events[i]['t'] >= start) & (events[i]['t'] <= end)
+        mask_b = (events[rand_index[i]]['t'] >= start) & (events[rand_index[i]]['t'] <= end)
 
-    return events, targets
+        # mix events
+        new_events = np.concatenate([events[i][~mask_a], events[rand_index[i]][mask_b]])
+
+        # avoid the case that the new events are empty
+        if len(new_events) == 0:
+            mixed_events.append(events[i])
+            mixed_targets.append(targets[i])
+        else:
+            # sort events
+            new_events = new_events[np.argsort(new_events['t'])]
+            mixed_events.append(new_events)
+
+            # mix targets
+            new_length = new_events['t'][-1] - new_events['t'][0]
+            if len(events[rand_index[i]]['t'][mask_b]) == 0:
+                cut_length = 0
+            else:
+                cut_length = events[rand_index[i]]['t'][mask_b][-1] - events[rand_index[i]]['t'][mask_b][0]
+            lam = cut_length / new_length
+            assert 0 <= lam <= 1, f'lam should be between 0 and 1, but got {lam} {new_length} {cut_size[rand_index[i]]} {start} {end}'
+            mixed_targets.append(targets[i] * (1 - lam) + targets[rand_index[i]] * lam)
+
+    return mixed_events, mixed_targets

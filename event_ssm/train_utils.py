@@ -40,24 +40,21 @@ def training_step(
             mutable=['batch_stats']
         )
 
-        loss = optax.softmax_cross_entropy_with_integer_labels(logits, targets)
+        loss = optax.softmax_cross_entropy(logits, targets)
         loss = loss.mean()
-        preds = jnp.argmax(logits, axis=-1)
-        acc = (preds == targets).mean()
 
-        return loss, (acc, updates)
+        return loss, updates
 
-    (loss, (accuracy, batch_updates)), grads = jax.value_and_grad(loss_fn, has_aux=True)(train_state.params)
+    (loss, batch_updates), grads = jax.value_and_grad(loss_fn, has_aux=True)(train_state.params)
 
     if distributed:
         grads = jax.lax.pmean(grads, axis_name='data')
         loss = jax.lax.pmean(loss, axis_name='data')
-        accuracy = jax.lax.pmean(accuracy, axis_name='data')
 
     train_state = train_state.apply_gradients(grads=grads)
     train_state = train_state.replace(model_state=batch_updates)
 
-    return train_state, {'loss': loss, 'accuracy': accuracy}
+    return train_state, {'loss': loss}
 
 
 def evaluation_step(

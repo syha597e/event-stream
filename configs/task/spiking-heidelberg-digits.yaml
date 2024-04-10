@@ -9,13 +9,14 @@ training:
   num_epochs: 30
   per_device_batch_size: 64
   per_device_eval_batch_size: 128
-  num_workers: 5
+  num_workers: 4
   time_jitter: 100
   spatial_jitter: 1.0
   noise: 35
   max_drop_chunk: 0.1
   drop_event: 0.1
   time_skew: 1.12
+  cut_mix: 0.5
   pad_unit: 8192
   validate_on_test: true
 
