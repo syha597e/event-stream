@@ -160,6 +160,48 @@ def cut_mix_augmentation(events, targets):
         max_num_events (int): maximum number of events to mix
     """
     # get the total time of all events
+    lengths = np.array([e.shape[0] for e in events])
+
+    # get fraction of the event-stream to cut
+    cut_size = np.random.randint(low=1, high=lengths)
+    start_event = np.random.randint(low=0, high=lengths - cut_size)
+
+    # a random permutation to mix the events
+    rand_index = np.random.permutation(len(events))
+
+    mixed_events = []
+    mixed_targets = []
+
+    # cut events from b and mix them with events from a
+    for i in range(len(events)):
+        events_b = events[rand_index[i]][start_event[rand_index[i]]:start_event[rand_index[i]] + cut_size[rand_index[i]]]
+        mask_a = (events[i]['t'] >= events_b['t'][0]) & (events[i]['t'] <= events_b['t'][-1])
+        events_a = events[i][~mask_a]
+
+        # mix and sort events
+        new_events = np.concatenate([events_a, events_b])
+        new_events = new_events[np.argsort(new_events['t'])]
+
+        # mix targets
+        lam = events_b.shape[0] / new_events.shape[0]
+        assert 0 <= lam <= 1, f'lam should be between 0 and 1, but got {lam} {cut_size[rand_index[i]]} {events_a.shape[0]} {events_b.shape[0]}'
+
+        # append mixed events and targets
+        mixed_events.append(new_events)
+        mixed_targets.append(targets[i] * (1 - lam) + targets[rand_index[i]] * lam)
+
+    return mixed_events, mixed_targets
+
+
+def cut_mix_augmentation_time(events, targets):
+    """
+    Cut and mix two event streams by a random event chunk. Input is a list of event streams.
+
+    Args:
+        events (dict): batch of event streams of shape (batch_size, num_events, 4)
+        max_num_events (int): maximum number of events to mix
+    """
+    # get the total time of all events
     lengths = np.array([e['t'][-1] - e['t'][0] for e in events], dtype=np.float32)
 
     # get fraction of the event-stream to cut
