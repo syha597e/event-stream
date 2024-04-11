@@ -340,9 +340,131 @@ def create_events_dvs_gesture_classification_dataset(
 	)
 	return train_loader, val_loader, test_loader, data
 
+def create_events_dvs_cifar10_classification_dataset(
+		cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
+		per_device_batch_size: int = 32,
+		per_device_eval_batch_size: int = 64,
+		world_size: int = 1,
+		num_workers: int = 0,
+		seed: int = 42,
+		slice_events: int = 0,
+		pad_unit: int = 2 ** 19,
+		# Augmentation parameters
+		time_jitter: float = 100,
+		noise: int = 100,
+		drop_event: float = 0.1,
+		time_skew: float = 1.1,
+		downsampling: int = 1,
+		max_roll: int = 4,
+		max_angle: float = 10,
+		max_scale: float = 1.5,
+		max_drop_chunk: float = 0.1,
+		validate_on_test: bool = False,
+		**kwargs
+) -> Tuple[DataLoader, DataLoader, DataLoader, Data]:
+	"""
+	creates a view of the DVS Gesture dataset
+
+	:param cache_dir:		(str):		where to store the dataset
+	:param bsz:				(int):		Batch size.
+	:param seed:			(int)		Seed for shuffling data.
+	"""
+	print("[*] Generating DVS cifar10 Classification Dataset")
+
+	assert time_skew > 1, "time_skew must be greater than 1"
+
+	if seed is not None:
+		rng = torch.Generator()
+		rng.manual_seed(seed)
+	else:
+		rng = None
+
+	orig_sensor_size = (128, 128, 2)
+	new_sensor_size = (128 // downsampling, 128 // downsampling, 2)
+	train_transforms = [
+		# Event transformations
+		DropEventChunk(p=0.3, max_drop_size=max_drop_chunk),
+		tonic.transforms.DropEvent(p=drop_event),
+		tonic.transforms.UniformNoise(sensor_size=new_sensor_size, n=(0, noise)),
+		# Time tranformations
+		tonic.transforms.TimeSkew(coefficient=(1 / time_skew, time_skew), offset=0),
+		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
+		# Spatial transformations
+		tonic.transforms.SpatialJitter(sensor_size=orig_sensor_size, var_x=1, var_y=1, clip_outliers=True),
+		tonic.transforms.Downsample(sensor_size=orig_sensor_size, target_size=new_sensor_size[:2]) if downsampling > 1 else Identity(),
+		# Geometric tranformations
+		Roll(sensor_size=new_sensor_size, p=0.3, max_roll=max_roll),
+		Rotate(sensor_size=new_sensor_size, p=0.3, max_angle=max_angle),
+		Scale(sensor_size=new_sensor_size, p=0.3, max_scale=max_scale),
+	]
+
+	train_transforms = tonic.transforms.Compose(train_transforms)
+	test_transforms = tonic.transforms.Compose([
+		tonic.transforms.Downsample(sensor_size=orig_sensor_size, target_size=new_sensor_size[:2]) if downsampling > 1 else Identity(),
+	])
+
+	TrainData = partial(tonic.datasets.cifar10dvs.CIFAR10DVS, save_to=cache_dir)
+	dataset = tonic.datasets.cifar10dvs.CIFAR10DVS(save_to=cache_dir,transform=None)
+	val_data = TrainData(transform=test_transforms)
+	val_length = int(0.2 * len(val_data))
+	indices = torch.randperm(len(val_data), generator=rng) 
+	val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
+	#TestData = partial(tonic.datasets.cifar10dvs.CIFAR10DVS, save_to=cache_dir, train=False)
+
+	# create validation set
+	if validate_on_test:
+		print("[*] WARNING: Using test set for validation")
+		# create train validation split
+		val_data = TrainData(transform=test_transforms)
+		val_length = int(0.2 * len(val_data))
+		indices = torch.randperm(len(val_data), generator=rng)
+		val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
+	else:
+		raise NotImplementedError(f'additional train validation split is not implemented')
+	# if slice event count is given, train on slices of the training data
+	if slice_events > 0:
+		slicer = tonic.slicers.SliceByEventCount(event_count=slice_events, overlap=slice_events // 2, include_incomplete=True)
+		train_subset = torch.utils.data.Subset(TrainData(), indices[:-val_length]) if not validate_on_test else TrainData()
+		train_data = tonic.sliced_dataset.SlicedDataset(
+			dataset=train_subset,
+			slicer=slicer,
+			transform=train_transforms,
+			metadata_path=None
+		)
+	else:
+		train_data = torch.utils.data.Subset(TrainData(transform=train_transforms), indices[:-val_length])  if not validate_on_test else TrainData(transform=train_transforms)
+
+	# Always evaluate on the full sequences
+	test_data = val_data
+
+	# define collate functions
+	train_collate_fn = partial(
+			event_stream_collate_fn,
+			resolution=new_sensor_size[:2],
+			pad_unit=slice_events if slice_events < pad_unit else pad_unit,
+		)
+	eval_collate_fn = partial(
+			event_stream_collate_fn,
+			resolution=new_sensor_size[:2],
+			pad_unit=pad_unit,
+		)
+	train_loader, val_loader, test_loader = event_stream_dataloader(
+		train_data, val_data, test_data,
+		train_collate_fn=train_collate_fn,
+		eval_collate_fn=eval_collate_fn,
+		batch_size=per_device_batch_size * world_size, eval_batch_size=per_device_eval_batch_size * world_size,
+		rng=rng, num_workers=num_workers, shuffle_training=True
+	)
+
+	data = Data(
+		n_classes=10, num_embeddings=np.prod(new_sensor_size), train_size=len(train_data)
+	)
+	return train_loader, val_loader, test_loader, data
+
 
 Datasets = {
 	"shd-classification": create_events_shd_classification_dataset,
 	"ssc-classification": create_events_ssc_classification_dataset,
 	"dvs-gesture-classification": create_events_dvs_gesture_classification_dataset,
+	"dvs-cifar10-classification": create_events_dvs_cifar10_classification_dataset,
 }
