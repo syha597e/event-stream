@@ -62,8 +62,8 @@ class Roll:
         # roll x, y coordinates by a random amount
         roll_x = np.random.randint(-self.max_roll, self.max_roll)
         roll_y = np.random.randint(-self.max_roll, self.max_roll)
-        events['x'] += roll_x
-        events['y'] += roll_y
+        events['x'] = np.add(events['x'],roll_x, out=events['x'], casting="unsafe")
+        events['y'] = np.add(events['y'],roll_y, out=events['y'], casting="unsafe")
         # remove events who got shifted out of the sensor size
         mask = (events['x'] >= 0) & (events['x'] < self.sensor_size[0]) & (events['y'] >= 0) & (events['y'] < self.sensor_size[1])
         events = events[mask]
