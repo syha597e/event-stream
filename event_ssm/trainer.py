@@ -240,8 +240,12 @@ class TrainerModule:
         log_interval = self.log_config.interval
 
         for i, batch in enumerate(train_loader):
-            num_batches += 1
+            # skip batches with empty sequences which might randomly occur due to data augmentation
+            _, _, _, lengths = batch
+            if jnp.any(lengths == 0):
+                continue
 
+            num_batches += 1
             if self.world_size > 1:
                 step_key, dropout_key = jax.vmap(jax.random.split, in_axes=0, out_axes=1)(dropout_key)
                 step_key = jax.vmap(jax.random.fold_in)(step_key, jnp.arange(self.world_size))
