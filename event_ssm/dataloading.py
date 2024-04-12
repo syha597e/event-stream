@@ -526,7 +526,7 @@ def create_events_dvs_cifar10_classification_dataset(
     TrainData = partial(tonic.datasets.cifar10dvs.CIFAR10DVS, save_to=cache_dir)
     dataset = tonic.datasets.cifar10dvs.CIFAR10DVS(save_to=cache_dir, transform=None)
     val_data = TrainData(transform=test_transforms)
-    val_length = int(0.2 * len(val_data))
+    val_length = int(0.1 * len(val_data))
     indices = torch.randperm(len(val_data), generator=rng)
     val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
     # TestData = partial(tonic.datasets.cifar10dvs.CIFAR10DVS, save_to=cache_dir, train=False)
