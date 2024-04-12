@@ -240,6 +240,7 @@ def create_events_dvs_gesture_classification_dataset(
 		pad_unit: int = 2 ** 19,
 		# Augmentation parameters
 		time_jitter: float = 100,
+		spatial_jitter: float = 1.0,
 		noise: int = 100,
 		drop_event: float = 0.1,
 		time_skew: float = 1.1,
@@ -280,7 +281,7 @@ def create_events_dvs_gesture_classification_dataset(
 		tonic.transforms.TimeSkew(coefficient=(1 / time_skew, time_skew), offset=0),
 		tonic.transforms.TimeJitter(std=time_jitter, clip_negative=False, sort_timestamps=True),
 		# Spatial transformations
-		tonic.transforms.SpatialJitter(sensor_size=orig_sensor_size, var_x=1, var_y=1, clip_outliers=True),
+		tonic.transforms.SpatialJitter(sensor_size=orig_sensor_size, var_x=spatial_jitter, var_y=spatial_jitter, clip_outliers=True),
 		tonic.transforms.Downsample(sensor_size=orig_sensor_size, target_size=new_sensor_size[:2]) if downsampling > 1 else Identity(),
 		# Geometric tranformations
 		Roll(sensor_size=new_sensor_size, p=0.3, max_roll=max_roll),

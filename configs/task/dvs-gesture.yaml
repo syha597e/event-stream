@@ -11,6 +11,7 @@ training:
   per_device_eval_batch_size: 4
   num_workers: 4
   time_jitter: 1
+  spatial_jitter: 1.0
   noise: 0.0
   drop_event: 0.1
   time_skew: 1.2
