@@ -524,7 +524,6 @@ def create_events_dvs_cifar10_classification_dataset(
     )
 
     TrainData = partial(tonic.datasets.cifar10dvs.CIFAR10DVS, save_to=cache_dir)
-    dataset = tonic.datasets.cifar10dvs.CIFAR10DVS(save_to=cache_dir, transform=None)
     val_data = TrainData(transform=test_transforms)
     val_length = int(0.1 * len(val_data))
     indices = torch.randperm(len(val_data), generator=rng)
@@ -534,11 +533,8 @@ def create_events_dvs_cifar10_classification_dataset(
     # create validation set
     if validate_on_test:
         print("[*] WARNING: Using test set for validation")
-        # create train validation split
-        val_data = TrainData(transform=test_transforms)
-        val_length = int(0.2 * len(val_data))
-        indices = torch.randperm(len(val_data), generator=rng)
-        val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
+        # Always evaluate on the full sequences
+        test_data = val_data
     else:
         raise NotImplementedError(
             f"additional train validation split is not implemented"
@@ -567,9 +563,6 @@ def create_events_dvs_cifar10_classification_dataset(
             if not validate_on_test
             else TrainData(transform=train_transforms)
         )
-
-    # Always evaluate on the full sequences
-    test_data = val_data
 
     # define collate functions
     train_collate_fn = partial(
