@@ -528,8 +528,6 @@ def create_events_dvs_cifar10_classification_dataset(
     val_length = int(0.1 * len(val_data))
     indices = torch.randperm(len(val_data), generator=rng)
     val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
-    # TestData = partial(tonic.datasets.cifar10dvs.CIFAR10DVS, save_to=cache_dir, train=False)
-
     # create validation set
     if validate_on_test:
         print("[*] WARNING: Using test set for validation")
@@ -544,11 +542,7 @@ def create_events_dvs_cifar10_classification_dataset(
         slicer = tonic.slicers.SliceByEventCount(
             event_count=slice_events, overlap=slice_events // 2, include_incomplete=True
         )
-        train_subset = (
-            torch.utils.data.Subset(TrainData(), indices[:-val_length])
-            if not validate_on_test
-            else TrainData()
-        )
+        train_subset = torch.utils.data.Subset(TrainData(), indices[:-val_length])
         train_data = tonic.sliced_dataset.SlicedDataset(
             dataset=train_subset,
             slicer=slicer,
@@ -556,13 +550,9 @@ def create_events_dvs_cifar10_classification_dataset(
             metadata_path=None,
         )
     else:
-        train_data = (
-            torch.utils.data.Subset(
+        train_data = torch.utils.data.Subset(
                 TrainData(transform=train_transforms), indices[:-val_length]
             )
-            if not validate_on_test
-            else TrainData(transform=train_transforms)
-        )
 
     # define collate functions
     train_collate_fn = partial(
