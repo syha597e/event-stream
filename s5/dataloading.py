@@ -456,7 +456,6 @@ def create_events_dvs_gesture_frame_classification_dataset(
             val_size = len(train_dataset) - train_size
             train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
         test_dataset = tonic.datasets.DVSGesture(save_to=cache_dir, train=False, transform=event_transform, target_transform=None)
-
     elif slice_by == "time": #TODO - without slicing by time ?
         if slice_dataset:
             train_pad_length,test_pad_length = 67,67
@@ -513,11 +512,6 @@ def create_events_dvs_gesture_frame_classification_dataset(
                 temp_max = data.max()
                 data_max = temp_max if temp_max > data_max else data_max
                 i=i+1
-
-            for data, _ in val_dataset:
-                temp_max = data.max()
-                data_max = temp_max if temp_max > data_max else data_max
-
         print(f"Max train value: {data_max}")
         norm_transform = torchvision.transforms.Lambda(lambda x: x / data_max)
     else:
