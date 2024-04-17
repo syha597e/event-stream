@@ -551,8 +551,8 @@ def create_events_dvs_cifar10_classification_dataset(
         )
     else:
         train_data = torch.utils.data.Subset(
-                TrainData(transform=train_transforms), indices[:-val_length]
-            )
+            TrainData(transform=train_transforms), indices[:-val_length]
+        )
 
     # define collate functions
     train_collate_fn = partial(
