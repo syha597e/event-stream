@@ -333,7 +333,7 @@ def create_events_dvs_gesture_classification_dataset(
     train_collate_fn = partial(
             event_stream_collate_fn,
             resolution=new_sensor_size[:2],
-            pad_unit=slice_events if slice_events < pad_unit else pad_unit,
+            pad_unit=slice_events if (slice_events != 0 and slice_events < pad_unit) else pad_unit,
             cut_mix=cut_mix
         )
     eval_collate_fn = partial(
