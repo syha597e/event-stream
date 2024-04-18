@@ -300,6 +300,8 @@ def create_events_dvs_cifar10_classification_dataset(
     :param seed:			(int)		Seed for shuffling data.
     """
     print("[*] Generating DVS cifar10 Classification Dataset")
+    if not validate_on_test:
+        raise NotImplementedError("Extra validation split not implemented")
 
     if seed is not None:
         rng = torch.Generator()
@@ -343,38 +345,31 @@ def create_events_dvs_cifar10_classification_dataset(
         event_count = 1000 # TODO - try with different counts ?
         metadata_path = f"cifar10_{slice_by}_{overlap}_{event_count}_" + tr_str
         event_transform = tonic.transforms.ToFrame(sensor_size=tonic.datasets.DVSGesture.sensor_size, event_count=event_count,include_incomplete=False)
-        train_dataset = tonic.datasets.cifar10dvs.CIFAR10DVS(save_to=cache_dir, train=True, transform=event_transform, target_transform=None)
+        train_dataset = tonic.datasets.cifar10dvs.CIFAR10DVS(save_to=cache_dir, transform=event_transform, target_transform=None)
         data_stats = get_stats(train_dataset)
         train_pad_length= int(data_stats[pad_option])
-        if not validate_on_test:
-            train_size = int(split * len(train_dataset))
-            val_size = len(train_dataset) - train_size
-            train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
-        test_dataset = tonic.datasets.cifar10dvs.CIFAR10DVS(save_to=cache_dir, train=False, transform=event_transform, target_transform=None)
+        train_size = int(split * len(train_dataset))
+        val_size = len(train_dataset) - train_size
+        train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+        test_dataset = val_dataset
     elif slice_by == "time": #TODO - without slicing by time ?
         if slice_dataset:
             train_pad_length,test_pad_length = 67,67
             metadata_path = f"cifar10_{min_time_window}_{overlap}_{frame_time}_" + tr_str
             train_dataset = tonic.datasets.cifar10dvs.CIFAR10DVS(
-                save_to=cache_dir, train=True, transform=None, target_transform=None
+                save_to=cache_dir,transform=None, target_transform=None
             )
             slicer_by_time = SliceByTime(
                 time_window=min_time_window, overlap=overlap, include_incomplete=False
             )
-            if not validate_on_test:
-                train_size = int(split * len(train_dataset))
-                val_size = len(train_dataset) - train_size
-                train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
-                val_dataset = SlicedDataset(val_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None)
+            train_size = int(split * len(train_dataset))
+            val_size = len(train_dataset) - train_size
+            train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+            val_dataset = SlicedDataset(val_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None)
             train_dataset = SlicedDataset(
                 train_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None
             )
-            test_dataset = tonic.datasets.cifar10dvs.CIFAR10DVS(
-                save_to=cache_dir, train=False, transform=None, target_transform=None
-            )
-            test_dataset = SlicedDataset(
-                test_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None
-            )
+            test_dataset = val_dataset
         else:
             metadata_path = f"_{min_time_window}_{overlap}_{frame_time}_" + tr_str +"_no_slice"
             train_dataset = tonic.datasets.DVSGesture(
@@ -382,13 +377,10 @@ def create_events_dvs_cifar10_classification_dataset(
             )
             data_stats = get_stats(train_dataset)
             train_pad_length= int(data_stats[pad_option])
-            if not validate_on_test:
-                train_size = int(split * len(train_dataset))
-                val_size = len(train_dataset) - train_size
-                train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
-            test_dataset = tonic.datasets.DVSGesture(
-                save_to=cache_dir, train=False, transform=transform, target_transform=None
-            )
+            train_size = int(split * len(train_dataset))
+            val_size = len(train_dataset) - train_size
+            train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+            test_dataset = val_dataset
     else:
         assert TypeError("unknown argument for slicer")
 
