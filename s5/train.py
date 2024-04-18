@@ -53,7 +53,7 @@ def train(args):
         retrieval = False
 
     else:
-        if (args.dataset in ["dvs-frame-gesture-classification"]) & (args.slice_dataset==False):
+        if (args.dataset in ["dvs-frame-gesture-classification","dvs-frame-cifar10-classification"]) & (args.slice_dataset==False):
             padded = True
             tokenized = False
             retrieval = False
@@ -77,7 +77,7 @@ def train(args):
 
     # Create dataset...
     init_rng, key = random.split(init_rng, num=2)
-    if args.dataset in ["dvs-frame-gesture-classification"]:
+    if args.dataset in ["dvs-frame-gesture-classification","dvs-frame-cifar10-classification"]:
         data = create_dataset_fn(
                 args.dir_name, seed=args.jax_seed, bsz=args.bsz,
                 crop_events=args.max_events_per_sample,

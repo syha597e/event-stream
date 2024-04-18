@@ -280,6 +280,235 @@ def create_events_ssc_classification_dataset(
         train_size=len(train_data),
     )
 
+def create_events_dvs_cifar10_classification_dataset(
+    cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
+    bsz: int = 50,
+    seed: int = 42,
+    crop_events: int = None,
+    slice_by: str = "time",
+    slice_dataset: bool = True,
+    pad_option: str = "median",
+    use_pretrained: bool = False,
+    normalize:bool=False,
+    validate_on_test:bool=False,
+) -> Data:
+    """
+    creates a view of the DVS Gesture dataset
+
+    :param cache_dir:		(str):		where to store the dataset
+    :param bsz:				(int):		Batch size.
+    :param seed:			(int)		Seed for shuffling data.
+    """
+    print("[*] Generating DVS cifar10 Classification Dataset")
+
+    if seed is not None:
+        rng = torch.Generator()
+        rng.manual_seed(seed)
+    else:
+        rng = None
+
+    if seed is not None:
+        rng = torch.Generator()
+        rng.manual_seed(seed)
+    else:
+        rng = None
+
+    def get_transforms(frame_time):  # TODO Used twice??
+        denoise_transform = tonic.transforms.Denoise(filter_time=10000)
+        sensor_size = tonic.datasets.DVSGesture.sensor_size
+        frame_transform_time = tonic.transforms.ToFrame(
+            sensor_size=sensor_size,
+            time_window=frame_time * 1000,
+            include_incomplete=False,
+        )
+
+        transform = tonic.transforms.Compose(
+            [
+                # denoise_transform,
+                frame_transform_time,
+            ]
+        )
+        return transform, "toframe"
+
+    split = 0.9
+    frame_time = 25
+    transform, tr_str = get_transforms(frame_time)
+    event_agg_method = "mean"
+    batch_size = bsz
+    augmentation = True
+    cache = cache_dir
+    min_time_window = 1.7 * 1e6  # 1.7 s
+    overlap = 0 
+    if slice_by == "event":  # TODO - No slicing currently ! `ToFrame` transform with fixed event count
+        event_count = 1000 # TODO - try with different counts ?
+        metadata_path = f"cifar10_{slice_by}_{overlap}_{event_count}_" + tr_str
+        event_transform = tonic.transforms.ToFrame(sensor_size=tonic.datasets.DVSGesture.sensor_size, event_count=event_count,include_incomplete=False)
+        train_dataset = tonic.datasets.cifar10dvs.CIFAR10DVS(save_to=cache_dir, train=True, transform=event_transform, target_transform=None)
+        data_stats = get_stats(train_dataset)
+        train_pad_length= int(data_stats[pad_option])
+        if not validate_on_test:
+            train_size = int(split * len(train_dataset))
+            val_size = len(train_dataset) - train_size
+            train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+        test_dataset = tonic.datasets.cifar10dvs.CIFAR10DVS(save_to=cache_dir, train=False, transform=event_transform, target_transform=None)
+    elif slice_by == "time": #TODO - without slicing by time ?
+        if slice_dataset:
+            train_pad_length,test_pad_length = 67,67
+            metadata_path = f"cifar10_{min_time_window}_{overlap}_{frame_time}_" + tr_str
+            train_dataset = tonic.datasets.cifar10dvs.CIFAR10DVS(
+                save_to=cache_dir, train=True, transform=None, target_transform=None
+            )
+            slicer_by_time = SliceByTime(
+                time_window=min_time_window, overlap=overlap, include_incomplete=False
+            )
+            if not validate_on_test:
+                train_size = int(split * len(train_dataset))
+                val_size = len(train_dataset) - train_size
+                train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+                val_dataset = SlicedDataset(val_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None)
+            train_dataset = SlicedDataset(
+                train_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None
+            )
+            test_dataset = tonic.datasets.cifar10dvs.CIFAR10DVS(
+                save_to=cache_dir, train=False, transform=None, target_transform=None
+            )
+            test_dataset = SlicedDataset(
+                test_dataset, slicer=slicer_by_time, transform=transform, metadata_path=None
+            )
+        else:
+            metadata_path = f"_{min_time_window}_{overlap}_{frame_time}_" + tr_str +"_no_slice"
+            train_dataset = tonic.datasets.DVSGesture(
+                save_to=cache_dir, train=True, transform=transform, target_transform=None
+            )
+            data_stats = get_stats(train_dataset)
+            train_pad_length= int(data_stats[pad_option])
+            if not validate_on_test:
+                train_size = int(split * len(train_dataset))
+                val_size = len(train_dataset) - train_size
+                train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+            test_dataset = tonic.datasets.DVSGesture(
+                save_to=cache_dir, train=False, transform=transform, target_transform=None
+            )
+    else:
+        assert TypeError("unknown argument for slicer")
+
+    if event_agg_method == "none" or event_agg_method == "mean":
+        if slice_by == "time":
+            data_max = (
+                19.0  # commented to save time, re calculate if min_time_window changes
+            )
+        else:
+            # data_max = (
+            #     76.0  # TODO - try not to hardcode- efficiently calculate data_max
+            # )
+            i=0
+            data_max = 0
+            for data, _ in train_dataset:
+                temp_max = data.max()
+                data_max = temp_max if temp_max > data_max else data_max
+                i=i+1
+        print(f"Max train value: {data_max}")
+        norm_transform = torchvision.transforms.Lambda(lambda x: x / data_max)
+    else:
+        norm_transform = None
+
+    if use_pretrained or not normalize:
+        post_cache_transform = tonic.transforms.Compose(
+            [
+                torch.tensor,
+                RandomResizedCrop(
+                    tonic.datasets.DVSGesture.sensor_size[:-1],
+                    scale=(0.6, 1.0),
+                    interpolation=torchvision.transforms.InterpolationMode.NEAREST,
+                ),
+                RandomPerspective(),
+                RandomRotation(25),
+            ]
+        )
+
+    elif augmentation:  # Try torch augmentation #CUT-MIX augmentation
+        post_cache_transform = tonic.transforms.Compose(
+                [
+                    norm_transform,
+                    torch.tensor,
+                    RandomResizedCrop(
+                        tonic.datasets.DVSGesture.sensor_size[:-1],
+                        scale=(0.6, 1.0),
+                        interpolation=torchvision.transforms.InterpolationMode.NEAREST,
+                    ),
+                    RandomPerspective(),
+                    RandomRotation(25),
+                ]
+            )
+    else: #TODO - clean the if-else statements
+        pass
+    train_cached_dataset = DiskCachedDataset(
+        train_dataset,
+        transform=post_cache_transform,
+        cache_path=os.path.join(cache, "diskcache_train" + metadata_path),
+    )
+    if not validate_on_test:
+        val_cached_dataset = DiskCachedDataset(
+            val_dataset,
+            transform=post_cache_transform,
+            cache_path=os.path.join(cache, "diskcache_val" + metadata_path),
+        )
+    if use_pretrained or not normalize:
+        cached_test_dataset_time = DiskCachedDataset(
+            test_dataset,
+            cache_path=os.path.join(cache, "diskcache_test" + metadata_path),
+        )
+    else:
+        cached_test_dataset_time = DiskCachedDataset(
+            test_dataset,
+            transform=norm_transform,
+            cache_path=os.path.join(cache, "diskcache_test" + metadata_path),
+        )
+
+    kwargs = {"num_workers": 1, "pin_memory": True} if torch.cuda.is_available() else {}
+    collate_fn = tonic.collation.PadTensors(batch_first=True) if slice_dataset else partial(frame_collate_fn,max_length=train_pad_length)
+    train_dataset = DataLoader(
+        train_cached_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        #collate_fn=tonic.collation.PadTensors(batch_first=True),
+        collate_fn= collate_fn,
+        drop_last=True,
+        **kwargs,
+    )
+    if validate_on_test:
+        val_dataset = None
+    else:
+        val_dataset = DataLoader(
+            val_cached_dataset,
+            batch_size=batch_size,
+            collate_fn=collate_fn,
+            drop_last=True,
+            shuffle=True,
+            **kwargs,
+        )
+    test_dataset = DataLoader(
+        cached_test_dataset_time,
+        batch_size=batch_size,
+        collate_fn=collate_fn,
+        drop_last=True,
+        shuffle=True,
+    )
+    test_pad_length = train_pad_length # Currently using same pad sequence length for both train and validation
+    return Data(
+        train_dataset,
+        val_dataset,
+        test_dataset,
+        aux_loaders={},
+        n_classes=10,
+        in_dim=32768,
+        train_pad_length=train_pad_length,
+        test_pad_length=test_pad_length,
+        train_size=len(train_dataset)*batch_size,
+    )
+
+
+
 
 def create_events_dvs_gesture_classification_dataset(
     cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
@@ -707,4 +936,5 @@ Datasets = {
     "ssc-classification": create_events_ssc_classification_dataset,
     "dvs-gesture-classification": create_events_dvs_gesture_classification_dataset,
     "dvs-frame-gesture-classification": create_events_dvs_gesture_frame_classification_dataset,
+    "dvs-frame-cifar10-classification": create_events_dvs_cifar10_classification_dataset
 }
