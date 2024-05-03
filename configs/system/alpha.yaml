@@ -1,4 +1,0 @@
-# @package _global_
-
-data_dir: /beegfs/ws/0/scma493c-forward_mode/DATA
-output_dir: /beegfs/ws/0/scma493c-forward_mode/Experiments/${task.name}
