@@ -145,22 +145,15 @@ class SequenceLayer(nn.Module):
             norm = nn.BatchNorm(momentum=self.bn_momentum, axis_name='batch') if self.batchnorm else nn.LayerNorm()
             x = norm(x, use_running_average=not train) if self.batchnorm else norm(x)
 
-        seq = self.ssm(H_in=self.d_model_in, H_out=self.d_model_out, P=self.d_ssm, block_size=self.block_size,
+        # apply state space model
+        x = self.ssm(H_in=self.d_model_in, H_out=self.d_model_out, P=self.d_ssm, block_size=self.block_size,
                        step_rescale=self.step_rescale, discretization=self.discretization,
-                       stride=self.pooling_stride, pooling_mode=self.pooling_mode)
-        x = seq(x, integration_timesteps)
+                       stride=self.pooling_stride, pooling_mode=self.pooling_mode)(x, integration_timesteps)
 
-        if self.activation in ["full_glu", "half_glu1", "half_glu2"]:
-            x = nn.gelu(x)
-        if "glu" in self.activation:
-            out1 = nn.Dense(self.d_model_out)
-            out2 = nn.Dense(self.d_model_out)
-            x = out1(x) * jax.nn.sigmoid(out2(x)) if self.activation == "full_glu" else x * jax.nn.sigmoid(out2(x))
-        elif self.activation == "gelu":
-            x = nn.gelu(x)
-        else:
-            raise NotImplementedError(f"Activation: {self.activation} not implemented")
-
+        # non-linear activation function
+        x1 = nn.Dropout(self.dropout, broadcast_dims=[0], deterministic=not train)(nn.gelu(x))
+        x1 = nn.Dense(self.d_model_out)(x1)
+        x = x * nn.sigmoid(x1)
         x = nn.Dropout(self.dropout, broadcast_dims=[0], deterministic=not train)(x)
 
         if self.pooling_stride > 1:

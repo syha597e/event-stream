@@ -14,7 +14,6 @@ model:
     ssm_block_size: 16
     num_stages: 2
     num_layers_per_stage: 6
-    activation_fn: half_glu2
     dropout: 0.3
     classification_mode: timepool
     prenorm: true
