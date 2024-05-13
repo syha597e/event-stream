@@ -61,7 +61,7 @@ def discretize_dirac(Lambda, step_delta, time_delta):
     return Lambda_bar, gamma_bar
 
 
-def discretize_state_zoh(Lambda, step_delta, time_delta):
+def discretize_async(Lambda, step_delta, time_delta):
     """ Discretize a diagonalized, continuous-time linear SSM
         with dirac delta input spikes.
         Args:
@@ -244,8 +244,8 @@ class S5SSM(nn.Module):
             self.discretize_fn = discretize_bilinear
         elif self.discretization in ["dirac"]:
             self.discretize_fn = discretize_dirac
-        elif self.discretization in ["state_zoh"]:
-            self.discretize_fn = discretize_state_zoh
+        elif self.discretization in ["async"]:
+            self.discretize_fn = discretize_async
         else:
             raise NotImplementedError("Discretization method {} not implemented".format(self.discretization))
 

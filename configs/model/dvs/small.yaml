@@ -8,7 +8,7 @@ model:
     conj_sym: true
     clip_eigs: false
   ssm:
-    discretization: state_zoh
+    discretization: async
     d_model: 128
     d_ssm: 128
     ssm_block_size: 8
