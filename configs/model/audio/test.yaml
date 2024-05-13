@@ -9,18 +9,16 @@ model:
     clip_eigs: false
   ssm:
     discretization: zoh
-    discretization_first_layer: dirac
     d_model: 32
     d_ssm: 32
-    block_size: 8
-    num_layers: 2
-    activation_fn: half_glu2
+    ssm_block_size: 4
+    num_stages: 1
+    num_layers_per_stage: 4
     dropout: 0.27
     classification_mode: timepool
     prenorm: true
     batchnorm: true
     bn_momentum: 0.95
     pooling_stride: 1
-    pooling_every_n_layers: 99
     pooling_mode: avgpool
     state_expansion_factor: 1

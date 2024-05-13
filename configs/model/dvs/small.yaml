@@ -9,18 +9,16 @@ model:
     clip_eigs: false
   ssm:
     discretization: state_zoh
-    discretization_first_layer: state_zoh
     d_model: 128
     d_ssm: 128
-    block_size: 16
-    num_layers: 6
-    activation_fn: half_glu2
+    ssm_block_size: 8
+    num_stages: 2
+    num_layers_per_stage: 3
     dropout: 0.1
     classification_mode: timepool
     prenorm: true
     batchnorm: false
     bn_momentum: 0.95
     pooling_stride: 16
-    pooling_every_n_layers: 3
     pooling_mode: timepool
     state_expansion_factor: 2

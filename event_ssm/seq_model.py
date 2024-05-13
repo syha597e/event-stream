@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as np
 from flax import linen as nn
-from .layers import SequenceLayer
+from .layers import SequenceStage
 from typing import Callable
 import numpy
 
@@ -24,11 +24,11 @@ class StackedEncoderModel(nn.Module):
     """
     ssm: nn.Module
     discretization: str
-    discretization_first_layer: str
     d_model: int
     d_ssm: int
-    block_size: int
-    n_layers: int
+    ssm_block_size: int
+    num_stages: int
+    num_layers_per_stage: int
     num_embeddings: int = 0
     activation: str = "gelu"
     dropout: float = 0.0
@@ -49,41 +49,42 @@ class StackedEncoderModel(nn.Module):
         self.encoder = nn.Embed(num_embeddings=self.num_embeddings, features=self.d_model)
 
         # generate strides for the model
-        layers = []
-        d_model = self.d_model
+        stages = []
+        d_model_in = self.d_model
+        d_model_out = self.d_model
         d_ssm = self.d_ssm
         total_downsampling = 1
-        for l in range(self.n_layers):
+        for stage in range(self.num_stages):
             # pool from the first layer but don't expand the state dim for the first layer
-            stride = self.pooling_stride if l % self.pooling_every_n_layers == 0 else 1
-            total_downsampling *= stride
-            d_model_in = d_model
-            d_model_out = d_model
+            total_downsampling *= self.pooling_stride
 
-            if l > 0 and l % self.pooling_every_n_layers == 0:
-                d_ssm = self.state_expansion_factor * d_ssm
-                d_model_out = self.state_expansion_factor * d_model
-                d_model = self.state_expansion_factor * d_model
-
-            layers.append(
-                SequenceLayer(
+            stages.append(
+                SequenceStage(
                     ssm=self.ssm,
-                    discretization=self.discretization_first_layer if l == 0 else self.discretization,
-                    dropout=self.dropout,
+                    discretization=self.discretization,
                     d_model_in=d_model_in,
                     d_model_out=d_model_out,
                     d_ssm=d_ssm,
-                    block_size=self.block_size,
+                    ssm_block_size=self.ssm_block_size,
+                    layers_per_stage=self.num_layers_per_stage,
+                    dropout=self.dropout,
                     activation=self.activation,
                     prenorm=self.prenorm,
                     batchnorm=self.batchnorm,
                     bn_momentum=self.bn_momentum,
                     step_rescale=self.step_rescale,
-                    pooling_stride=stride,
+                    pooling_stride=self.pooling_stride,
                     pooling_mode=self.pooling_mode
                 )
             )
-        self.layers = layers
+
+            d_ssm = self.state_expansion_factor * d_ssm
+            d_model_out = self.state_expansion_factor * d_model_in
+
+            if stage > 0:
+                d_model_in = self.state_expansion_factor * d_model_in
+
+        self.stages = stages
         self.total_downsampling = total_downsampling
 
     def __call__(self, x, integration_timesteps, train: bool):
@@ -96,9 +97,9 @@ class StackedEncoderModel(nn.Module):
             output sequence (float32): (L, d_model)
         """
         x = self.encoder(x)
-        for i, layer in enumerate(self.layers):
+        for i, stage in enumerate(self.stages):
             # apply layer SSM
-            x, integration_timesteps = layer(x, integration_timesteps, train=train)
+            x, integration_timesteps = stage(x, integration_timesteps, train=train)
         return x, integration_timesteps
 
 
@@ -180,12 +181,12 @@ class ClassificationModel(nn.Module):
     """
     ssm: nn.Module
     discretization: str
-    discretization_first_layer: str
     num_classes: int
     d_model: int
     d_ssm: int
-    block_size: int
-    num_layers: int
+    ssm_block_size: int
+    num_stages: int
+    num_layers_per_stage: int
     num_embeddings: int = 0
     activation_fn: str = "gelu"
     dropout: float = 0.2
@@ -206,11 +207,11 @@ class ClassificationModel(nn.Module):
         self.encoder = StackedEncoderModel(
             ssm=self.ssm,
             discretization=self.discretization,
-            discretization_first_layer=self.discretization_first_layer,
             d_model=self.d_model,
             d_ssm=self.d_ssm,
-            block_size=self.block_size,
-            n_layers=self.num_layers,
+            ssm_block_size=self.ssm_block_size,
+            num_stages=self.num_stages,
+            num_layers_per_stage=self.num_layers_per_stage,
             num_embeddings=self.num_embeddings,
             activation=self.activation_fn,
             dropout=self.dropout,

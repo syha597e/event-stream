@@ -39,15 +39,15 @@ class EventPooling(nn.Module):
                 raise NotImplementedError("Pooling mode: {} not implemented".format(self.stride))
 
 
-class SequenceLayer(nn.Module):
-    """ Defines a single S5 layer, with S5 SSM, nonlinearity,
-            dropout, batch/layer norm, etc.
+class SequenceStage(nn.Module):
+    """ Defines a block of EventSSM layers with the same hidden size and event-resolution
         Args:
             ssm         (nn.Module): the SSM to be used (i.e. S5 ssm)
-            dropout     (float32):  dropout rate
             d_model     (int32):    this is the feature size of the layer inputs and outputs
-                                    we usually refer to this size as H
+                                     we usually refer to this size as H
+            n_layers    (int32):    the number of S5 layers to stack
             activation  (string):   Type of activation function to use
+            dropout     (float32):  dropout rate
             prenorm     (bool):     apply prenorm if true or postnorm if false
             batchnorm   (bool):     apply batchnorm if true or layernorm if false
             bn_momentum (float32):  the batchnorm momentum if batchnorm is used
@@ -55,6 +55,73 @@ class SequenceLayer(nn.Module):
                                     e.g. after training on a different resolution for
                                     the speech commands benchmark
     """
+    ssm: nn.Module
+    discretization: str
+    d_model_in: int
+    d_model_out: int
+    d_ssm: int
+    ssm_block_size: int
+    layers_per_stage: int
+    activation: str = "gelu"
+    dropout: float = 0.0
+    prenorm: bool = False
+    batchnorm: bool = False
+    bn_momentum: float = 0.9
+    step_rescale: float = 1.0
+    pooling_stride: int = 1
+    pooling_mode: str = "last"
+    state_expansion_factor: int = 1
+
+    @nn.compact
+    def __call__(self, x, integration_timesteps, train: bool):
+        """
+        Compute the LxH output of the stacked encoder given an Lxd_input
+        input sequence.
+        Args:
+             x (float32): input sequence (L, d_input)
+        Returns:
+            output sequence (float32): (L, d_model)
+        """
+        EventSSMLayer = partial(
+            SequenceLayer,
+            ssm=self.ssm,
+            discretization=self.discretization,
+            dropout=self.dropout,
+            d_ssm=self.d_ssm,
+            block_size=self.ssm_block_size,
+            activation=self.activation,
+            prenorm=self.prenorm,
+            batchnorm=self.batchnorm,
+            bn_momentum=self.bn_momentum,
+            step_rescale=self.step_rescale,
+        )
+
+        # first layer with pooling
+        x, integration_timesteps = EventSSMLayer(
+            d_model_in=self.d_model_in,
+            d_model_out=self.d_model_out,
+            pooling_stride=self.pooling_stride,
+            pooling_mode=self.pooling_mode
+        )(x, integration_timesteps, train=train)
+
+        # further layers without pooling
+        for l in range(self.layers_per_stage - 1):
+            x, integration_timesteps = EventSSMLayer(
+            d_model_in=self.d_model_out,
+            d_model_out=self.d_model_out,
+            pooling_stride=1
+        )(x, integration_timesteps, train=train)
+
+        return x, integration_timesteps
+
+
+from flax import linen as nn
+from functools import partial
+import jax
+
+class SequenceLayer(nn.Module):
+    """Defines a single S5 layer, with S5 SSM, nonlinearity,
+       dropout, batch/layer norm, etc."""
     ssm: nn.Module
     discretization: str
     dropout: float
@@ -70,83 +137,36 @@ class SequenceLayer(nn.Module):
     pooling_stride: int = 1
     pooling_mode: str = "last"
 
-    def setup(self):
-        """Initializes the ssm, batch/layer norm and dropout
-        """
-        self.seq = self.ssm(H_in=self.d_model_in, H_out=self.d_model_out, P=self.d_ssm, block_size=self.block_size, step_rescale=self.step_rescale, discretization=self.discretization, stride=self.pooling_stride, pooling_mode=self.pooling_mode)
-
-        if self.activation in ["full_glu"]:
-            self.out1 = nn.Dense(self.d_model_out)
-            self.out2 = nn.Dense(self.d_model_out)
-        elif self.activation in ["half_glu1", "half_glu2"]:
-            self.out2 = nn.Dense(self.d_model_out)
-
-        if self.d_model_in != self.d_model_out:
-            self.skip_connection = nn.Dense(self.d_model_out)
-
-        if self.batchnorm:
-            self.norm = nn.BatchNorm(momentum=self.bn_momentum, axis_name='batch')
-        else:
-            self.norm = nn.LayerNorm()
-
-        self.drop = nn.Dropout(
-            self.dropout,
-            broadcast_dims=[0]
-        )
-
-        self.pool = EventPooling(stride=self.pooling_stride, mode=self.pooling_mode)
-
+    @nn.compact
     def __call__(self, x, integration_timesteps, train: bool):
-        """
-        Compute the LxH output of S5 layer given an LxH input.
-        Args:
-             x (float32): input sequence (L, d_model)
-        Returns:
-            output sequence (float32): (L, d_model)
-        """
         skip = x
 
         if self.prenorm:
-            if self.batchnorm:
-                x = self.norm(x, use_running_average=not train)
-            else:
-                x = self.norm(x)
+            norm = nn.BatchNorm(momentum=self.bn_momentum, axis_name='batch') if self.batchnorm else nn.LayerNorm()
+            x = norm(x, use_running_average=not train) if self.batchnorm else norm(x)
 
-        x = self.seq(x, integration_timesteps)
+        # apply state space model
+        x = self.ssm(H_in=self.d_model_in, H_out=self.d_model_out, P=self.d_ssm, block_size=self.block_size,
+                       step_rescale=self.step_rescale, discretization=self.discretization,
+                       stride=self.pooling_stride, pooling_mode=self.pooling_mode)(x, integration_timesteps)
 
-        apply_dropout = partial(self.drop, deterministic=not train)
-        if self.activation in ["full_glu"]:
-            x = apply_dropout(nn.gelu(x))
-            x = self.out1(x) * jax.nn.sigmoid(self.out2(x))
-            x = apply_dropout(x)
-        elif self.activation in ["half_glu1"]:
-            x = apply_dropout(nn.gelu(x))
-            x = x * jax.nn.sigmoid(self.out2(x))
-            x = apply_dropout(x)
-        elif self.activation in ["half_glu2"]:
-            # Only apply GELU to the gate input
-            x1 = apply_dropout(nn.gelu(x))
-            x = x * jax.nn.sigmoid(self.out2(x1))
-            x = apply_dropout(x)
-        elif self.activation in ["gelu"]:
-            x = apply_dropout(nn.gelu(x))
-        else:
-            raise NotImplementedError(
-                   "Activation: {} not implemented".format(self.activation))
+        # non-linear activation function
+        x1 = nn.Dropout(self.dropout, broadcast_dims=[0], deterministic=not train)(nn.gelu(x))
+        x1 = nn.Dense(self.d_model_out)(x1)
+        x = x * nn.sigmoid(x1)
+        x = nn.Dropout(self.dropout, broadcast_dims=[0], deterministic=not train)(x)
 
         if self.pooling_stride > 1:
-            skip, integration_timesteps = self.pool(skip, integration_timesteps)
+            pool = EventPooling(stride=self.pooling_stride, mode=self.pooling_mode)
+            skip, integration_timesteps = pool(skip, integration_timesteps)
 
         if self.d_model_in != self.d_model_out:
-            skip = self.skip_connection(skip)
+            skip = nn.Dense(self.d_model_out)(skip)
 
-        # apply skip connection
         x = skip + x
 
         if not self.prenorm:
-            if self.batchnorm:
-                x = self.norm(x, use_running_average=not train)
-            else:
-                x = self.norm(x)
+            norm = nn.BatchNorm(momentum=self.bn_momentum, axis_name='batch') if self.batchnorm else nn.LayerNorm()
+            x = norm(x, use_running_average=not train) if self.batchnorm else norm(x)
 
         return x, integration_timesteps
