@@ -88,6 +88,7 @@ def train(args):
                 normalize = args.normalize,
                 validate_on_test = args.validate_on_test
             )
+        wandb.log({"padded_seq_length": data.train_pad_length})
     else:
         data = create_dataset_fn(
                 args.dir_name, seed=args.jax_seed, bsz=args.bsz,
