@@ -372,8 +372,8 @@ def create_events_dvs_cifar10_classification_dataset(
             test_dataset = val_dataset
         else:
             metadata_path = f"_{min_time_window}_{overlap}_{frame_time}_" + tr_str +"_no_slice"
-            train_dataset = tonic.datasets.DVSGesture(
-                save_to=cache_dir, train=True, transform=transform, target_transform=None
+            train_dataset = tonic.datasets.cifar10dvs.CIFAR10DVS(
+                save_to=cache_dir,transform=transform, target_transform=None
             )
             data_stats = get_stats(train_dataset)
             train_pad_length= int(data_stats[pad_option])
@@ -386,9 +386,17 @@ def create_events_dvs_cifar10_classification_dataset(
 
     if event_agg_method == "none" or event_agg_method == "mean":
         if slice_by == "time":
-            data_max = (
-                19.0  # commented to save time, re calculate if min_time_window changes
-            )
+            i=0
+            data_max = 0
+            for data, _ in train_dataset:
+                temp_max = data.max()
+                data_max = temp_max if temp_max > data_max else data_max
+                i=i+1
+
+
+            #data_max = (
+            #    19.0  # commented to save time, re calculate if min_time_window changes
+            #)
         else:
             # data_max = (
             #     76.0  # TODO - try not to hardcode- efficiently calculate data_max
