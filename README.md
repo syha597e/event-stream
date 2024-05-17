@@ -2,22 +2,32 @@
 ![Figure 1](docs/figures/figure1.png)
 This is the official implementation of our paper [Scalable Event-by-event Processing of Neuromorphic Sensory Signals With Deep State-Space Models
 ](https://arxiv.org/abs/2404.18508).
-A core motivation for this work was the irregular time-series example presented in the paper [Simplified State Space Layers for Sequence Modeling
+The core motivation for this work was the irregular time-series modeling problem presented in the paper [Simplified State Space Layers for Sequence Modeling
 ](https://arxiv.org/abs/2208.04933). 
-Therefore, this repository started as a fork of the [S5 repository](https://github.com/lindermanlab/S5).
-We treat quite a general machine learning problem:
-Modeling sequences that are irregularly sampled by a possibly large number of asynchronous sensors.
+We acknowledge the awesome [S5 project](https://github.com/lindermanlab/S5) and the trainer class provided by this [UvA tutorial](https://uvadlc-notebooks.readthedocs.io/en/latest/tutorial_notebooks/guide4/Research_Projects_with_JAX.html), which highly influenced our code.
+
+Our project treats a quite general machine learning problem:
+Modeling **long sequences** that are **irregularly** sampled by a possibly large number of **asynchronous** sensors.
 This problem is particularly present in the field of neuromorphic computing, where event-based sensors emit up to millions events per second from asynchronous channels.
 
-We show how linear state-space models such as S5 can be tuned to effectively model asynchronous event-based sequences.
+We show how linear state-space models can be tuned to effectively model asynchronous event-based sequences.
 Our contributions are
-- a **discretization method** derived from dirac delta pulses
-- **time-invariant input normalization** constant to effectively learn on long event-streams
+- Integration of dirac delta coded event streams
+- time-invariant input normalization to effectively learn from long event-streams
 - formulating neuromorphic event-streams as a language modeling problem with **asynchronous tokens**
-- Effectively model event-based vision **without frames and without CNNs** 
+- effectively model event-based vision **without frames and without CNNs** 
 
 ## Installation
-
+The project is implemented in [JAX](https://github.com/google/jax) with [Flax](https://flax.readthedocs.io/en/latest/).
+Before installing the other requirements from `requirements.txt`, make sure to install `jax` and `jaxlib` according to your system specs as instructed by the [JAX installation guide](https://github.com/google/jax?tab=readme-ov-file#installation).
+Then install the requirements with
+```bash
+pip install -r requirements.txt
+```
+and install this repository
+```bash
+pip install -e .
+```
 ## Reproducing experiments
 We use the [hydra](https://hydra.cc/docs/intro/) package to manage configurations.
 If you are not familiar with hydra, we recommend to read the [documentation](https://hydra.cc/docs/intro/).
@@ -73,21 +83,17 @@ This specification of the `output_dir` is not required though.
 
 # Help and support
 We are eager to help you with any questions or issues you might have. 
-Please use the GitHub issue tracker for questions and issues.
+Please use the GitHub issue tracker for questions and to report issues.
 
 ## Citation
 Please use the following when citing our work:
 ```
-@inproceedings{
-smith2023simplified,
-title={Simplified State Space Layers for Sequence Modeling},
-author={Jimmy T.H. Smith and Andrew Warrington and Scott Linderman},
-booktitle={The Eleventh International Conference on Learning Representations },
-year={2023},
-url={https://openreview.net/forum?id=Ai8Hw3AXqks}
+@misc{Schoene2024,
+      title={Scalable Event-by-event Processing of Neuromorphic Sensory Signals With Deep State-Space Models}, 
+      author={Mark Schöne and Neeraj Mohan Sushma and Jingyue Zhuge and Christian Mayr and Anand Subramoney and David Kappel},
+      year={2024},
+      eprint={2404.18508},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG}
 }
 ```
-
-Please reach out if you have any questions.
-
--- The S5 authors.
