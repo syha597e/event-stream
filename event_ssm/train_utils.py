@@ -77,7 +77,7 @@ def evaluation_step(
         False,
     )
 
-    loss = optax.softmax_cross_entropy_with_integer_labels(logits, targets)
+    loss = optax.softmax_cross_entropy(logits, targets)
     loss = loss.mean()
     preds = jnp.argmax(logits, axis=-1)
     accuracy = (preds == targets).mean()

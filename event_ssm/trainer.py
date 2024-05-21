@@ -357,7 +357,7 @@ class TrainerModule:
         else:
             state = self.train_state
         checkpoints.save_checkpoint(
-            ckpt_dir=os.path.join(self.log_dir, 'checkpoints'),
+            ckpt_dir=os.path.abspath(os.path.join(self.log_dir, 'checkpoints')),
             target=state,
             step=state.step,
             overwrite=True,
@@ -417,4 +417,4 @@ class TrainerModule:
         if self.is_new_model_better(eval_metrics, self.best_eval_metrics):
             best_eval_metrics = eval_metrics
             self.save_model()
-            self.save_metrics('best_eval', eval_metrics)
+            self.save_metrics('best_eval', best_eval_metrics)
