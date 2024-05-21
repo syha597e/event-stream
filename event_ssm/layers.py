@@ -146,9 +146,11 @@ class SequenceLayer(nn.Module):
             x = norm(x, use_running_average=not train) if self.batchnorm else norm(x)
 
         # apply state space model
-        x = self.ssm(H_in=self.d_model_in, H_out=self.d_model_out, P=self.d_ssm, block_size=self.block_size,
-                       step_rescale=self.step_rescale, discretization=self.discretization,
-                       stride=self.pooling_stride, pooling_mode=self.pooling_mode)(x, integration_timesteps)
+        x = self.ssm(
+            H_in=self.d_model_in, H_out=self.d_model_out, P=self.d_ssm, block_size=self.block_size,
+            step_rescale=self.step_rescale, discretization=self.discretization,
+            stride=self.pooling_stride, pooling_mode=self.pooling_mode
+        )(x, integration_timesteps)
 
         # non-linear activation function
         x1 = nn.Dropout(self.dropout, broadcast_dims=[0], deterministic=not train)(nn.gelu(x))

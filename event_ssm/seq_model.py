@@ -257,7 +257,8 @@ class ClassificationModel(nn.Module):
             raise NotImplementedError("Mode must be in ['pool', 'last]")
 
         x = self.decoder(x)
-        return nn.log_softmax(x, axis=-1)
+        #return nn.log_softmax(x, axis=-1)
+        return x
 
 
 # Here we call vmap to parallelize across a batch of input sequences
