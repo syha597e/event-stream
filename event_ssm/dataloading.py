@@ -136,13 +136,13 @@ def create_events_shd_classification_dataset(
     target_transforms = OneHotLabels(num_classes=20)
 
     train_data = tonic.datasets.SHD(save_to=cache_dir, train=True, transform=transforms, target_transform=target_transforms)
-    val_data = tonic.datasets.SHD(save_to=cache_dir, train=True)
-    test_data = tonic.datasets.SHD(save_to=cache_dir, train=False)
+    val_data = tonic.datasets.SHD(save_to=cache_dir, train=True, target_transform=target_transforms)
+    test_data = tonic.datasets.SHD(save_to=cache_dir, train=False, target_transform=target_transforms)
 
     # create validation set
     if validate_on_test:
         print("[*] WARNING: Using test set for validation")
-        val_data = tonic.datasets.SHD(save_to=cache_dir, train=False)
+        val_data = tonic.datasets.SHD(save_to=cache_dir, train=False, target_transform=target_transforms)
     else:
         val_length = int(0.1 * len(train_data))
         indices = torch.randperm(len(train_data), generator=rng)
@@ -208,10 +208,9 @@ def create_events_ssc_classification_dataset(
     ])
     target_transforms = OneHotLabels(num_classes=35)
 
-
     train_data = tonic.datasets.SSC(save_to=cache_dir, split='train', transform=transforms, target_transform=target_transforms)
-    val_data = tonic.datasets.SSC(save_to=cache_dir, split='valid')
-    test_data = tonic.datasets.SSC(save_to=cache_dir, split='test')
+    val_data = tonic.datasets.SSC(save_to=cache_dir, split='valid', target_transform=target_transforms)
+    test_data = tonic.datasets.SSC(save_to=cache_dir, split='test', target_transform=target_transforms)
 
     collate_fn = partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit, no_time_information=no_time_information)
     train_loader, val_loader, test_loader = event_stream_dataloader(
@@ -294,17 +293,16 @@ def create_events_dvs_gesture_classification_dataset(
     ])
     target_transforms = OneHotLabels(num_classes=11)
 
-
     TrainData = partial(tonic.datasets.DVSGesture, save_to=cache_dir, train=True)
     TestData = partial(tonic.datasets.DVSGesture, save_to=cache_dir, train=False)
 
     # create validation set
     if validate_on_test:
         print("[*] WARNING: Using test set for validation")
-        val_data = TestData(transform=test_transforms)
+        val_data = TestData(transform=test_transforms, target_transform=target_transforms)
     else:
         # create train validation split
-        val_data = TrainData(transform=test_transforms)
+        val_data = TrainData(transform=test_transforms, target_transform=target_transforms)
         val_length = int(0.2 * len(val_data))
         indices = torch.randperm(len(val_data), generator=rng)
         val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
@@ -327,7 +325,7 @@ def create_events_dvs_gesture_classification_dataset(
         ) if not validate_on_test else TrainData(transform=train_transforms)
 
     # Always evaluate on the full sequences
-    test_data = TestData(transform=test_transforms)
+    test_data = TestData(transform=test_transforms, target_transform=target_transforms)
 
     # define collate functions
     train_collate_fn = partial(
