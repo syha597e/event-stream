@@ -110,6 +110,7 @@ class TrainerModule:
         self.log_config = config.logging
         self.debug = debug
         self.epoch_idx = 0
+        self.num_epochs = config.training.num_epochs
         self.best_eval_metrics = {}
 
         # logger details
@@ -146,7 +147,6 @@ class TrainerModule:
             self,
             train_loader: Iterator,
             val_loader: Iterator,
-            num_epochs: int,
             dropout_key: Array,
             test_loader: Optional[Iterator] = None,
     ) -> Dict[str, Any]:
@@ -167,7 +167,7 @@ class TrainerModule:
         # Prepare training loop
         self.on_training_start()
 
-        for epoch_idx in range(1, num_epochs+1):
+        for epoch_idx in range(1, self.num_epochs+1):
             self.epoch_idx = epoch_idx
 
             # run training step for this epoch

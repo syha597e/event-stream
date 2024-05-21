@@ -113,7 +113,6 @@ def main(config: DictConfig):
         train_loader=train_loader,
         val_loader=val_loader,
         test_loader=test_loader,
-        num_epochs=config.training.num_epochs,
         dropout_key=dropout_key
     )
 
