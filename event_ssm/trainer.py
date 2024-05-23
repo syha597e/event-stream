@@ -415,6 +415,6 @@ class TrainerModule:
 
         # Save best model
         if self.is_new_model_better(eval_metrics, self.best_eval_metrics):
-            best_eval_metrics = eval_metrics
+            self.best_eval_metrics = eval_metrics
             self.save_model()
-            self.save_metrics('best_eval', best_eval_metrics)
+            self.save_metrics('best_eval', eval_metrics)
