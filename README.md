@@ -48,6 +48,10 @@ or to run the DVS128 Gestures task
 python run_training.py task=dvs-gesture
 ```
 
+### Trained models
+We provide our best models for [download](https://datashare.tu-dresden.de/s/g2dQCi792B8DqnC).
+Check out the `tutorial_inference.ipynb` notebook to see how to load and run inference with these models.
+
 ### Specify HPC system and logging
 Many researchers operate on different HPC systems and perhaps log their experiments to multiple platforms.
 Therefore, the user can specify configurations for 
@@ -81,7 +85,12 @@ The string `${task.name}/${oc.env:SLURM_JOB_ID}/${now:%Y-%m-%d-%H-%M-%S}` will c
 which we found useful in practice.
 This specification of the `output_dir` is not required though.
 
-# Help and support
+## Tutorials
+To get started with event-based state-space models, we created tutorials for training and inference.
+- `tutorial_training.ipynb` shows how to train a model on a reduced version of the Spiking Heidelberg Digits with just two classes. The model converges after few minutes on CPUs.
+- `tutorial_inference.ipynb` shows how to load a trained model and run inference. The models are available for download from the provided [download link](https://datashare.tu-dresden.de/s/g2dQCi792B8DqnC).
+
+## Help and support
 We are eager to help you with any questions or issues you might have. 
 Please use the GitHub issue tracker for questions and to report issues.
 
