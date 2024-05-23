@@ -1,6 +1,24 @@
 from flax import linen as nn
 import jax
 from functools import partial
+import numpy as np
+
+
+class PositionalEncoding(nn.Module):
+    d_model: int    # Hidden dimensionality of the input.
+    positions: int  # number of positions to encode
+
+    def setup(self):
+        # Create matrix of [SeqLen, HiddenDim] representing the positional encoding for max_len inputs
+        pe = np.zeros((self.positions, self.d_model))
+        position = np.arange(0, self.positions, dtype=np.float32)[:, None]
+        div_term = np.exp(np.arange(0, self.d_model, 2) * (-np.log(10000.0) / self.d_model))
+        pe[:, 0::2] = np.sin(position * div_term)
+        pe[:, 1::2] = np.cos(position * div_term)
+        self.pe = jax.device_put(pe)
+
+    def __call__(self, idx):
+        return self.pe[idx]
 
 
 class EventPooling(nn.Module):
@@ -114,10 +132,6 @@ class SequenceStage(nn.Module):
 
         return x, integration_timesteps
 
-
-from flax import linen as nn
-from functools import partial
-import jax
 
 class SequenceLayer(nn.Module):
     """Defines a single S5 layer, with S5 SSM, nonlinearity,

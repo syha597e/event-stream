@@ -1,9 +1,7 @@
 import jax
 import jax.numpy as np
 from flax import linen as nn
-from .layers import SequenceStage
-from typing import Callable
-import numpy
+from .layers import SequenceStage, PositionalEncoding
 
 
 class StackedEncoderModel(nn.Module):
@@ -30,6 +28,7 @@ class StackedEncoderModel(nn.Module):
     num_stages: int
     num_layers_per_stage: int
     num_embeddings: int = 0
+    embeddings: str = "learned"
     activation: str = "gelu"
     dropout: float = 0.0
     prenorm: bool = False
@@ -46,7 +45,12 @@ class StackedEncoderModel(nn.Module):
         Initializes a linear encoder and the stack of S5 layers.
         """
         assert self.num_embeddings > 0
-        self.encoder = nn.Embed(num_embeddings=self.num_embeddings, features=self.d_model)
+        if self.embeddings == "learned":
+            self.encoder = nn.Embed(num_embeddings=self.num_embeddings, features=self.d_model)
+        elif self.embeddings == "positional":
+            self.encoder = PositionalEncoding(d_model=self.d_model, positions=self.num_embeddings)
+        else:
+            raise NotImplementedError
 
         # generate strides for the model
         stages = []
@@ -188,6 +192,7 @@ class ClassificationModel(nn.Module):
     num_stages: int
     num_layers_per_stage: int
     num_embeddings: int = 0
+    embeddings: str = "learned"
     activation_fn: str = "gelu"
     dropout: float = 0.2
     classification_mode: str = "pool"
@@ -213,6 +218,7 @@ class ClassificationModel(nn.Module):
             num_stages=self.num_stages,
             num_layers_per_stage=self.num_layers_per_stage,
             num_embeddings=self.num_embeddings,
+            embeddings=self.embeddings,
             activation=self.activation_fn,
             dropout=self.dropout,
             prenorm=self.prenorm,
@@ -257,7 +263,6 @@ class ClassificationModel(nn.Module):
             raise NotImplementedError("Mode must be in ['pool', 'last]")
 
         x = self.decoder(x)
-        #return nn.log_softmax(x, axis=-1)
         return x
 
 
