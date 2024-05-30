@@ -51,6 +51,11 @@ python run_training.py task=dvs-gesture
 ### Trained models
 We provide our best models for [download](https://datashare.tu-dresden.de/s/g2dQCi792B8DqnC).
 Check out the `tutorial_inference.ipynb` notebook to see how to load and run inference with these models.
+We also provide a script to evaluate the models on the test set
+```bash
+python run_evaluation.py task=spiking-speech-commands checkpoint=downloaded/model/SSC
+```
+
 
 ### Specify HPC system and logging
 Many researchers operate on different HPC systems and perhaps log their experiments to multiple platforms.
