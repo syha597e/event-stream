@@ -5,6 +5,7 @@ defaults:
   - logging: local
 
 seed: 1234
+checkpoint: null
 
 hydra:
   run:

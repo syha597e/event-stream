@@ -5,7 +5,7 @@ model:
     C_init: lecun_normal
     dt_min: 0.001
     dt_max: 0.1
-    conj_sym: true
+    conj_sym: false
     clip_eigs: true
   ssm:
     discretization: async
