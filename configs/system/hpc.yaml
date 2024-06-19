@@ -1,0 +1,4 @@
+# @package _global_
+
+data_dir: /data/horse/beegfs/ws/syha597e-my_workspace/git-data/position-embeddings/event-stream-modeling-s5/data
+output_dir: /data/horse/beegfs/ws/syha597e-my_workspace/git-data/position-embeddings/event-stream-modeling-s5/outputs/${task.name}/${oc.env:SLURM_JOB_ID}/${now:%Y-%m-%d-%H-%M-%S}

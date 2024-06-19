@@ -12,6 +12,7 @@ model:
     d_model: 96
     d_ssm: 128
     ssm_block_size: 8
+    embeddings: positional
     num_stages: 2
     num_layers_per_stage: 3
     dropout: 0.23
@@ -22,3 +23,4 @@ model:
     pooling_stride: 8
     pooling_mode: avgpool
     state_expansion_factor: 1
+ 

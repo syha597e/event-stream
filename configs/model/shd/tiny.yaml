@@ -12,6 +12,7 @@ model:
     d_model: 16
     d_ssm: 16
     ssm_block_size: 8
+    embeddings: learned
     num_stages: 1
     num_layers_per_stage: 6
     dropout: 0.1
