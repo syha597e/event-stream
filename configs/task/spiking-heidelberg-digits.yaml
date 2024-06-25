@@ -19,6 +19,8 @@ training:
   cut_mix: 0.3
   pad_unit: 8192
   validate_on_test: true
+  bin_size: 20
+  d_model: 96
 
 optimizer:
   ssm_base_lr: 1.7e-5
