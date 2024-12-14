@@ -5,7 +5,6 @@ import tonic
 from functools import partial
 import numpy as np
 from event_ssm.transform import Identity, Roll, Rotate, Scale, DropEventChunk, Jitter1D, OneHotLabels, cut_mix_augmentation
-from .layers import PositionalEncoding
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
@@ -14,13 +13,18 @@ InputType = [str, Optional[int], Optional[int]]
 
 
 class Data:
-    def __init__( self, n_classes: int, num_embeddings: int, train_size: int):
+    def __init__(
+            self,
+            n_classes: int,
+            num_embeddings: int,
+            train_size: int
+):
         self.n_classes = n_classes
         self.num_embeddings = num_embeddings
         self.train_size = train_size
 
 
-def event_stream_collate_fn(batch, resolution, pad_unit, cut_mix=0.0, no_time_information=False,bin_size=20, d_model=96):
+def event_stream_collate_fn(batch, resolution, pad_unit, cut_mix=0.0, no_time_information=False):
     # x are inputs, y are targets, z are aux data
     x, y, *z = zip(*batch)
     assert len(z) == 0
@@ -39,18 +43,6 @@ def event_stream_collate_fn(batch, resolution, pad_unit, cut_mix=0.0, no_time_in
     else:
         timesteps = [np.diff(e['t']) for e in x]
 
-### My implementation
-  # Bin the events by 20 microseconds
-    # bin_edges = np.arange(0, max([e['t'][-1] for e in x]) + bin_size, bin_size)  #it includes all the values of e['t']
-    # binned_events = []
-    # for e in x:
-    #     binned_e = np.digitize(e['t'], bins=bin_edges) - 1  # bin index starts from 0
-    #     binned_e = np.clip(binned_e, 0, len(bin_edges) - 2)  # Ensure bin indices are within range
-    #     binned_events.append(binned_e)
-
-    # Discretize event times into bins of 20 microseconds
-    binned_events = [np.floor(e['t'][:-1] / bin_size).astype(np.int32) for e in x]
-
     # NOTE: since timesteps are deltas, their length is L - 1, and we have to remove the last token in the following
 
     # process tokens for single input dim (e.g. audio)
@@ -61,38 +53,23 @@ def event_stream_collate_fn(batch, resolution, pad_unit, cut_mix=0.0, no_time_in
     else:
         raise ValueError('resolution must contain 1 or 2 elements')
 
-###------- My IMPLEMENTATION------###
-    final_tokens = np.zero_like(tokens)
-    # max_seq_len = max([len(e) for e in binned_events])
-    tokens =[PositionalEncoding( positions=t,d_model=d_model) for t in tokens]
-    
-    # Sum positional embeddings for events in the same bin
-    for i, (binned_e, token) in enumerate(zip(binned_events, tokens)):
-        for bin_idx in np.unique(binned_e):
-            indices = np.where(binned_e == bin_idx)[0]
-            summed_embeddings = np.sum(tokens[indices])
-            final_tokens[i, bin_idx] = token[indices] + summed_embeddings
-
     # get padding lengths
     lengths = np.array([len(e) for e in timesteps], dtype=np.int32)
     pad_length = (lengths.max() // pad_unit) * pad_unit + pad_unit
 
     # pad tokens with -1, which results in a zero vector with embedding look-ups
-    # tokens = np.stack(
-    #     [np.pad(e, (0, pad_length - len(e)), mode='constant', constant_values=-1) for e in tokens])
-    
-    ###------- My IMPLEMENTATION------###
-    # Pad final tokens with zero vectors
-    final_tokens = np.stack([np.pad(e, (0, pad_length - len(e)), mode='constant', constant_values=-1) for e in final_tokens])
+    tokens = np.stack(
+        [np.pad(e, (0, pad_length - len(e)), mode='constant', constant_values=-1) for e in tokens])
+    timesteps = np.stack(
+        [np.pad(e, (0, pad_length - len(e)), mode='constant', constant_values=0) for e in timesteps])
 
-    timesteps = np.stack([np.pad(e, (0, pad_length - len(e)), mode='constant', constant_values=0) for e in timesteps])
     # timesteps are in micro seconds... transform to milliseconds
     timesteps = timesteps / 1000
 
     if batch_size_one:
         lengths = lengths[None, ...]
 
-    return final_tokens, y, timesteps, lengths  #tokens
+    return tokens, y, timesteps, lengths
 
 
 def event_stream_dataloader(train_data, val_data, test_data, batch_size, eval_batch_size, train_collate_fn, eval_collate_fn, rng, num_workers=0, shuffle_training=True):
@@ -127,11 +104,8 @@ def create_events_shd_classification_dataset(
         time_skew: float = 1.1,
         cut_mix: float = 0.5,
         pad_unit: int = 8192,
-        bin_size: int = 20,   ###---MY IMPLEMENTATION
-        d_model: int = 96,    ###---MY IMPLEMENTATION
         validate_on_test: bool = False,
         no_time_information: bool = False,
-
         **kwargs
 ) -> Tuple[DataLoader, DataLoader, DataLoader, Data]:
     """
@@ -175,7 +149,7 @@ def create_events_shd_classification_dataset(
         train_data = torch.utils.data.Subset(train_data, indices[:-val_length])
         val_data = torch.utils.data.Subset(val_data, indices[-val_length:])
 
-    collate_fn = partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit,no_time_information=no_time_information,bin_size=bin_size, d_model=d_model)
+    collate_fn = partial(event_stream_collate_fn, resolution=(700,), pad_unit=pad_unit, no_time_information=no_time_information)
     train_loader, val_loader, test_loader = event_stream_dataloader(
         train_data, val_data, test_data,
         train_collate_fn=partial(collate_fn, cut_mix=cut_mix),
@@ -358,7 +332,7 @@ def create_events_dvs_gesture_classification_dataset(
             event_stream_collate_fn,
             resolution=new_sensor_size[:2],
             pad_unit=slice_events if (slice_events != 0 and slice_events < pad_unit) else pad_unit,
-            cut_mix=cut_mix,
+            cut_mix=cut_mix
         )
     eval_collate_fn = partial(
             event_stream_collate_fn,

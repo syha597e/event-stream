@@ -2,7 +2,6 @@ import jax
 import jax.numpy as np
 from flax import linen as nn
 from .layers import SequenceStage, PositionalEncoding
-from dataloading import DataLoader,Datasets,event_stream_collate_fn
 
 
 class StackedEncoderModel(nn.Module):
@@ -45,13 +44,11 @@ class StackedEncoderModel(nn.Module):
         """
         Initializes a linear encoder and the stack of S5 layers.
         """
-        assert self.num_embeddings > 0  #Embeddings must contain only positive values
+        assert self.num_embeddings > 0
         if self.embeddings == "learned":
             self.encoder = nn.Embed(num_embeddings=self.num_embeddings, features=self.d_model)
         elif self.embeddings == "positional":
-            # self.encoder = PositionalEncoding(d_model=self.d_model, positions=self.num_embeddings)
-            self.encoder = lambda x:x
-    
+            self.encoder = PositionalEncoding(d_model=self.d_model, positions=self.num_embeddings)
         else:
             raise NotImplementedError
 
