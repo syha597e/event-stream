@@ -160,9 +160,6 @@ class Data:
 
 def event_stream_collate_fn(batch, resolution, pad_unit, cut_mix=0.0, no_time_information: bool = False, sum_tokens_in_bins: bool=False, preload_tokens: bool = False,):
 
-    # x are inputs, y are targets, z are aux data
-
-    # x, t, y, *z = zip(*batch)
     tokens, dt, labels,lengths, *z = zip(*batch)
     # x, y, *z = zip(*batc)
     assert len(z) == 0
@@ -170,23 +167,13 @@ def event_stream_collate_fn(batch, resolution, pad_unit, cut_mix=0.0, no_time_in
     # breakpoint()
 
 
-    # preprocessed = isinstance(x[0], dict) and "tokens" in x[0]
     if preload_tokens:
-        # tokens = [e["tokens"] for e in x]
-        # timesteps = [e["timesteps"] for e in x]
 
-        # tokens=torch.stack(x).numpy()
-        # timesteps=torch.stack(t).numpy()
-        # y = torch.stack(y).numpy()
-
-        # lengths = np.array([len(e) for e in dt], dtype=np.int32)
         tokens = np.stack(tokens)
         dt = np.stack(dt)
         labels = np.stack(labels)
         lengths=np.array(lengths)
 
-        # tokens = torch.stack(tokens).numpy()
-        # breakpoint()
 
   
     timesteps = dt / 1000
